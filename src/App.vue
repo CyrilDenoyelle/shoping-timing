@@ -1,9 +1,21 @@
 <script setup>
 import TodoList from './components/TodoList.vue'
+import IconCart from './components/icons/IconCart.vue'
+import { useTodoStorage } from './composables/useTodoStorage'
+
+const { shoppingMode, toggleShoppingMode } = useTodoStorage()
 </script>
 
 <template>
   <span class="app-label">ShopingTiming</span>
+  <button
+    class="cart-toggle"
+    :class="{ active: shoppingMode }"
+    aria-label="Mode courses"
+    @click="toggleShoppingMode"
+  >
+    <IconCart />
+  </button>
   <main>
     <TodoList />
   </main>
@@ -22,5 +34,36 @@ import TodoList from './components/TodoList.vue'
   opacity: 0.35;
   pointer-events: none;
   z-index: 10;
+}
+
+.cart-toggle {
+  position: fixed;
+  top: 0.5rem;
+  right: 0.75rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-background);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.3s;
+}
+
+.cart-toggle:hover {
+  opacity: 1;
+  border-color: var(--color-border-hover);
+}
+
+.cart-toggle.active {
+  opacity: 1;
+  color: var(--accent);
+  border-color: transparent;
+  background: transparent;
 }
 </style>

@@ -22,7 +22,7 @@ function computeAverageIntervalMs(todo) {
   if (timings.length < 2) return Infinity
   const intervals = timings
     .map((t, i, arr) => i === 0 ? undefined : t[1] - arr[i - 1][1])
-    .slice(1) // remove the first undefined
+    .slice(1)
     .filter((i) => !Number.isNaN(i))
   if (intervals.length === 0) return Infinity
   return intervals.reduce((a, b) => a + b, 0) / intervals.length
@@ -93,7 +93,13 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2)
 }
 
+// Shared singleton state
+const shoppingMode = ref(false)
+let instance = null
+
 export function useTodoStorage(storage = localStorage) {
+  if (instance) return instance
+
   const stored = loadFromStorage(storage)
   const lists = ref(stored ?? defaultLists)
   const activeListId = ref(lists.value[0]?.id ?? null)
@@ -214,7 +220,7 @@ export function useTodoStorage(storage = localStorage) {
   onMounted(() => {
     tickInterval = setInterval(() => {
       now.value = Date.now()
-    }, 1000 * 60) // 1 minute
+    }, 1000 * 60)
   })
 
   onUnmounted(() => {
@@ -252,16 +258,30 @@ export function useTodoStorage(storage = localStorage) {
         })),
       }
     })
+    if (!shoppingMode.value) return mapped
     return mapped.sort((a, b) => {
       if (a.hasUnchecked === b.hasUnchecked) return 0
       return a.hasUnchecked ? -1 : 1
     })
   })
 
-  return {
+  const hasAnyUnchecked = computed(() =>
+    lists.value.some((l) => l.todos.some((t) => !t.done))
+  )
+
+  watch(hasAnyUnchecked, (value) => {
+    if (!value) shoppingMode.value = false
+  })
+
+  const toggleShoppingMode = () => {
+    shoppingMode.value = !shoppingMode.value
+  }
+
+  instance = {
     lists,
     activeListId,
     activeList,
+    shoppingMode,
     displayTodos,
     displayLists,
     addList,
@@ -274,5 +294,8 @@ export function useTodoStorage(storage = localStorage) {
     removeTodo,
     renameTodo,
     undoLastTiming,
+    toggleShoppingMode,
   }
+
+  return instance
 }
