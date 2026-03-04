@@ -95,6 +95,7 @@ function generateId() {
 
 // Shared singleton state
 const shoppingMode = ref(false)
+const confettiTrigger = ref(0)
 let instance = null
 
 export function useTodoStorage(storage = localStorage) {
@@ -270,7 +271,10 @@ export function useTodoStorage(storage = localStorage) {
   )
 
   watch(hasAnyUnchecked, (value) => {
-    if (!value) shoppingMode.value = false
+    if (!value && shoppingMode.value) {
+      shoppingMode.value = false
+      confettiTrigger.value++
+    }
   })
 
   const toggleShoppingMode = () => {
@@ -282,6 +286,7 @@ export function useTodoStorage(storage = localStorage) {
     activeListId,
     activeList,
     shoppingMode,
+    confettiTrigger,
     displayTodos,
     displayLists,
     addList,

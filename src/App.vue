@@ -1,12 +1,14 @@
 <script setup>
 import TodoList from './components/TodoList.vue'
+import ConfettiCelebration from './components/ConfettiCelebration.vue'
 import IconCart from './components/icons/IconCart.vue'
 import { useTodoStorage } from './composables/useTodoStorage'
 
-const { shoppingMode, toggleShoppingMode } = useTodoStorage()
+const { shoppingMode, confettiTrigger, toggleShoppingMode } = useTodoStorage()
 </script>
 
 <template>
+  <ConfettiCelebration :trigger="confettiTrigger" />
   <span class="app-label">ShopingTiming</span>
   <button
     class="cart-toggle"
