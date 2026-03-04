@@ -7,6 +7,7 @@ import { useTodoStorage } from '../composables/useTodoStorage'
 
 const {
   displayLists,
+  shoppingMode,
   addList,
   removeList,
   renameList,
@@ -151,6 +152,7 @@ const onDragEnd = () => {
           v-for="todo in list.displayTodos"
           :key="todo.id"
           :todo="todo"
+          :compact="shoppingMode && todo.done"
           @toggle="toggleTodo(list.id, todo.id)"
           @remove="removeTodo(list.id, todo.id)"
           @rename="(id, text) => renameTodo(list.id, id, text)"

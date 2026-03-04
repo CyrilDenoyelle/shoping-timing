@@ -9,6 +9,10 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  compact: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['toggle', 'remove', 'rename', 'undo'])
@@ -63,7 +67,7 @@ const ringOffset = computed(() => {
 </script>
 
 <template>
-  <div class="item" :class="{ done: todo.done }">
+  <div class="item" :class="{ done: todo.done, compact: compact }">
     <button class="check" @click="emit('toggle')" aria-label="Toggle">
       <svg class="ring-svg" width="20" height="20" viewBox="0 0 20 20">
         <circle
@@ -140,6 +144,32 @@ const ringOffset = computed(() => {
   align-items: center;
   gap: 0.4rem;
   padding: 0.15rem 0;
+  transition: padding 0.3s, gap 0.3s, opacity 0.3s;
+}
+
+.item.compact {
+  padding: 0;
+  gap: 0.25rem;
+  opacity: 0.45;
+}
+
+.item.compact .label {
+  font-size: 0.8rem;
+}
+
+.item.compact .check {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+}
+
+.item.compact .ring-svg {
+  width: 16px;
+  height: 16px;
+}
+
+.item.compact .actions {
+  display: none;
 }
 
 .check {
