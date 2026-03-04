@@ -238,17 +238,23 @@ export function useTodoStorage(storage = localStorage) {
 
   const displayLists = computed(() => {
     const n = now.value
-    return lists.value.map((list) => {
+    const mapped = lists.value.map((list) => {
       const sorted = [...list.todos].sort(
         (a, b) => getProgress(b, n) - getProgress(a, n)
       )
+      const hasUnchecked = list.todos.some((t) => !t.done)
       return {
         ...list,
+        hasUnchecked,
         displayTodos: sorted.map((todo) => ({
           ...todo,
           progress: getProgress(todo, n),
         })),
       }
+    })
+    return mapped.sort((a, b) => {
+      if (a.hasUnchecked === b.hasUnchecked) return 0
+      return a.hasUnchecked ? -1 : 1
     })
   })
 
