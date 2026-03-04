@@ -185,7 +185,7 @@ const onDragEnd = () => {
 .lists {
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
+  gap: 1.5rem;
 }
 
 .section {
@@ -208,7 +208,7 @@ const onDragEnd = () => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.25rem;
 }
 
 .drag-handle {

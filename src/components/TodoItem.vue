@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, computed } from 'vue'
 import IconTrash from './icons/IconTrash.vue'
 import IconTrashOpen from './icons/IconTrashOpen.vue'
 import IconUndo from './icons/IconUndo.vue'
@@ -53,24 +53,44 @@ const cancelEdit = () => {
   isEditing.value = false
   editText.value = ''
 }
+
+const RING_RADIUS = 8
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
+const ringOffset = computed(() => {
+  const p = Math.min(props.todo.progress ?? 0, 1)
+  return RING_CIRCUMFERENCE * (1 - p)
+})
 </script>
 
 <template>
   <div class="item" :class="{ done: todo.done }">
     <button class="check" @click="emit('toggle')" aria-label="Toggle">
-      <svg
-        v-if="todo.done"        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2.5"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <polyline points="20 6 9 17 4 12" />
+      <svg class="ring-svg" width="20" height="20" viewBox="0 0 20 20">
+        <circle
+          class="ring-track"
+          cx="10" cy="10" :r="RING_RADIUS"
+          fill="none"
+          stroke-width="2"
+        />
+        <circle
+          class="ring-fill"
+          cx="10" cy="10" :r="RING_RADIUS"
+          fill="none"
+          stroke-width="2"
+          stroke-linecap="round"
+          :stroke-dasharray="RING_CIRCUMFERENCE"
+          :stroke-dashoffset="ringOffset"
+        />
+        <polyline
+          v-if="todo.done"
+          class="ring-check"
+          points="7 10.5 9.5 13 13.5 7.5"
+          fill="none"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
-      <span v-else class="circle"></span>
     </button>
 
     <div class="body">
@@ -89,13 +109,6 @@ const cancelEdit = () => {
         class="label"
         @dblclick.stop="startEdit"
       >{{ todo.text }}</span>
-
-      <div class="bar">
-        <div
-          class="bar-fill"
-          :style="{ width: `${Math.min((todo.progress ?? 0) * 100, 100)}%` }"
-        ></div>
-      </div>
     </div>
 
     <div class="actions">
@@ -125,8 +138,8 @@ const cancelEdit = () => {
 .item {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.65rem 0;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
 }
 
 .check {
@@ -139,25 +152,36 @@ const cancelEdit = () => {
   padding: 0;
   background: none;
   border: none;
-  color: var(--color-text-muted);
   cursor: pointer;
-  transition: color 0.3s;
 }
 
-.item.done .check {
-  color: var(--accent);
+.ring-svg {
+  display: block;
+  transform: rotate(-90deg);
 }
 
-.circle {
-  width: 16px;
-  height: 16px;
-  border: 1.5px solid var(--color-border-hover);
-  border-radius: 50%;
-  transition: border-color 0.3s;
+.ring-track {
+  stroke: var(--color-border);
+  transition: stroke 0.3s;
 }
 
-.item:hover .circle {
-  border-color: var(--accent);
+.item:hover .ring-track {
+  stroke: var(--color-border-hover);
+}
+
+.ring-fill {
+  stroke: var(--accent);
+  transition: stroke-dashoffset 1.5s linear;
+}
+
+.item.done .ring-fill {
+  opacity: 0.4;
+}
+
+.ring-check {
+  stroke: var(--accent);
+  transform: rotate(90deg);
+  transform-origin: center;
 }
 
 .body {
@@ -191,24 +215,6 @@ const cancelEdit = () => {
   outline: none;
 }
 
-.bar {
-  margin-top: 0.3rem;
-  height: 3px;
-  background: var(--color-border);
-  border-radius: 1.5px;
-  overflow: hidden;
-}
-
-.bar-fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 1.5px;
-  transition: width 1.5s linear;
-}
-
-.item.done .bar-fill {
-  opacity: 0.35;
-}
 
 .actions {
   display: flex;

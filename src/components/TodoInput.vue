@@ -45,8 +45,8 @@ const submit = () => {
 .item {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.65rem 0;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
 }
 
 .icon {
