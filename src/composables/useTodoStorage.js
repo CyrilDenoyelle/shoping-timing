@@ -44,7 +44,8 @@ function getProgress(todo, now) {
   }
   const lastStarted = new Date(timings[timings.length - 1][1]).getTime()
   const elapsed = now - lastStarted
-  return Math.max(0, elapsed / todo.averageIntervalMs)
+  const progress = Math.ceil((elapsed / todo.averageIntervalMs) * 10) / 10
+  return Math.max(0, Math.min(1, progress - 0.3))
 }
 
 function migrateTodo(todo) {
@@ -216,17 +217,10 @@ export function useTodoStorage(storage = localStorage) {
   }
 
   const now = ref(Date.now())
-  let tickInterval
 
-  onMounted(() => {
-    tickInterval = setInterval(() => {
-      now.value = Date.now()
-    }, 1000 * 60)
-  })
-
-  onUnmounted(() => {
-    clearInterval(tickInterval)
-  })
+  const refreshNow = () => {
+    now.value = Date.now()
+  }
 
   const sortedTodos = computed(() => {
     const n = now.value
@@ -304,6 +298,7 @@ export function useTodoStorage(storage = localStorage) {
     renameTodo,
     undoLastTiming,
     toggleShoppingMode,
+    refreshNow,
   }
 
   return instance

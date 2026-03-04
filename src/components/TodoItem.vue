@@ -62,7 +62,7 @@ const RING_RADIUS = 8
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
 const ringOffset = computed(() => {
   const p = Math.min(props.todo.progress ?? 0, 1)
-  return RING_CIRCUMFERENCE * (1 - p)
+  return RING_CIRCUMFERENCE * (p)
 })
 </script>
 
