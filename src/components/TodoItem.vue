@@ -154,8 +154,9 @@ const cancelEdit = () => {
 }
 
 .item.done .label {
-  opacity: 0.4;
+  opacity: 0.6;
   text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, currentColor 80%, transparent);
 }
 
 .edit-input {
