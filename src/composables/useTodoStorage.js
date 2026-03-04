@@ -214,7 +214,7 @@ export function useTodoStorage(storage = localStorage) {
   onMounted(() => {
     tickInterval = setInterval(() => {
       now.value = Date.now()
-    }, 1500)
+    }, 1000 * 60) // 1 minute
   })
 
   onUnmounted(() => {
