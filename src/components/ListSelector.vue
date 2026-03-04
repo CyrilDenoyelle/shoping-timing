@@ -1,6 +1,7 @@
 <script setup>
 import { ref, nextTick } from 'vue'
 import IconTrash from './icons/IconTrash.vue'
+import IconTrashOpen from './icons/IconTrashOpen.vue'
 
 const props = defineProps({
   lists: { type: Array, required: true },
@@ -52,6 +53,21 @@ const cancelEdit = () => {
   editingListId.value = null
   editingName.value = ''
 }
+
+const confirmingDeleteId = ref(null)
+
+const handleDeleteList = (id) => {
+  if (confirmingDeleteId.value === id) {
+    emit('remove', id)
+    confirmingDeleteId.value = null
+  } else {
+    confirmingDeleteId.value = id
+  }
+}
+
+const cancelDeleteList = () => {
+  confirmingDeleteId.value = null
+}
 </script>
 
 <template>
@@ -88,10 +104,13 @@ const cancelEdit = () => {
         <button
           v-if="lists.length > 1 && editingListId === list.id"
           class="remove-tab"
+          :class="{ 'remove-confirm': confirmingDeleteId === list.id }"
           aria-label="Supprimer la liste"
-          @mousedown.prevent.stop="emit('remove', list.id)"
+          @mousedown.prevent.stop="handleDeleteList(list.id)"
+          @blur="cancelDeleteList"
         >
-          <IconTrash />
+          <IconTrashOpen v-if="confirmingDeleteId === list.id" />
+          <IconTrash v-else />
         </button>
       </div>
       <div v-if="showNewList" class="new-list-form">
@@ -192,6 +211,13 @@ const cancelEdit = () => {
 .remove-tab:hover {
   opacity: 1;
   color: #e74c3c;
+}
+
+.remove-confirm {
+  opacity: 1 !important;
+  color: #e74c3c !important;
+  transform: scale(1.3);
+  transition: color 0.2s, transform 0.2s;
 }
 
 .new-list-form {

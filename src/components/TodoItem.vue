@@ -1,6 +1,7 @@
 <script setup>
 import { ref, nextTick } from 'vue'
 import IconTrash from './icons/IconTrash.vue'
+import IconTrashOpen from './icons/IconTrashOpen.vue'
 import IconUndo from './icons/IconUndo.vue'
 
 const props = defineProps({
@@ -17,6 +18,20 @@ const hasTimings = () => (props.todo.timings?.length ?? 0) > 0
 const isEditing = ref(false)
 const editText = ref('')
 const editInputRef = ref(null)
+const confirmingDelete = ref(false)
+
+const handleDelete = () => {
+  if (confirmingDelete.value) {
+    emit('remove')
+    confirmingDelete.value = false
+  } else {
+    confirmingDelete.value = true
+  }
+}
+
+const cancelDelete = () => {
+  confirmingDelete.value = false
+}
 
 const startEdit = () => {
   isEditing.value = true
@@ -44,9 +59,7 @@ const cancelEdit = () => {
   <div class="item" :class="{ done: todo.done }">
     <button class="check" @click="emit('toggle')" aria-label="Toggle">
       <svg
-        v-if="todo.done"
-        xmlns="http://www.w3.org/2000/svg"
-        width="16"
+        v-if="todo.done"        width="16"
         height="16"
         viewBox="0 0 24 24"
         fill="none"
@@ -94,8 +107,15 @@ const cancelEdit = () => {
       >
         <IconUndo />
       </button>
-      <button class="act act-danger" @click="emit('remove')" aria-label="Supprimer">
-        <IconTrash />
+      <button
+        class="act act-danger"
+        :class="{ 'act-confirm': confirmingDelete }"
+        @click="handleDelete"
+        @blur="cancelDelete"
+        aria-label="Supprimer"
+      >
+        <IconTrashOpen v-if="confirmingDelete" />
+        <IconTrash v-else />
       </button>
     </div>
   </div>
@@ -225,5 +245,11 @@ const cancelEdit = () => {
 
 .act-danger:hover {
   color: var(--danger);
+}
+
+.act-confirm {
+  color: var(--danger) !important;
+  transform: scale(1.3);
+  transition: color 0.2s, transform 0.2s;
 }
 </style>
