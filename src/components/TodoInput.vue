@@ -15,7 +15,7 @@ const submit = () => {
 
 <template>
   <div class="item">
-    <span class="icon">
+    <span class="icon" @click="submit">
       <svg
         xmlns="http://www.w3.org/2000/svg"
         width="16"
@@ -61,6 +61,7 @@ const submit = () => {
   color: var(--color-text-muted);
   opacity: 0.4;
   transition: opacity 0.3s, color 0.3s;
+  cursor: pointer;
 }
 
 .item:focus-within .icon {
