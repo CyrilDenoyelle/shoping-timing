@@ -8,6 +8,7 @@ import { useTodoStorage } from '../composables/useTodoStorage'
 const {
   displayLists,
   shoppingMode,
+  shoppingTodos,
   addList,
   removeList,
   renameList,
@@ -103,6 +104,20 @@ const onDragEnd = () => {
 
 <template>
   <div class="lists">
+    <section v-if="shoppingMode && shoppingTodos.length" class="section shopping-section">
+      <TransitionGroup name="fade" tag="div" class="items">
+        <TodoItem
+          v-for="todo in shoppingTodos"
+          :key="'s-' + todo.id"
+          :todo="todo"
+          @toggle="toggleTodo(todo.listId, todo.id)"
+          @remove="removeTodo(todo.listId, todo.id)"
+          @rename="(id, text) => renameTodo(todo.listId, id, text)"
+          @undo="undoLastTiming(todo.listId, todo.id)"
+        />
+      </TransitionGroup>
+    </section>
+
     <section
       v-for="(list, index) in displayLists"
       :key="list.id"
@@ -196,6 +211,12 @@ const onDragEnd = () => {
   padding: 0.5rem;
   margin: -0.5rem;
   transition: opacity 0.25s, box-shadow 0.25s, background 0.25s;
+}
+
+.shopping-section {
+  padding-bottom: 1rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .section.is-dragging {

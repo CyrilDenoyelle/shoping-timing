@@ -282,12 +282,26 @@ export function useTodoStorage(storage = localStorage) {
     [...todos.value].map(toDisplayTodo).sort(sortByProgress)
   )
 
+  const shoppingTodos = computed(() => {
+    if (!shoppingMode.value) return []
+    return lists.value.flatMap((list) =>
+      list.todos
+        .filter((t) => !t.done)
+        .map((t) => ({ ...toDisplayTodo(t), listId: list.id, listName: list.name }))
+    )
+  })
+
   const displayLists = computed(() => {
-    const mapped = lists.value.map((list) => ({
-      ...list,
-      hasUnchecked: list.todos.some((t) => !t.done),
-      displayTodos: [...list.todos].map(toDisplayTodo).sort(sortByProgress),
-    }))
+    const mapped = lists.value.map((list) => {
+      const todos = shoppingMode.value
+        ? list.todos.filter((t) => t.done)
+        : list.todos
+      return {
+        ...list,
+        hasUnchecked: list.todos.some((t) => !t.done),
+        displayTodos: [...todos].map(toDisplayTodo).sort(sortByProgress),
+      }
+    })
     if (!shoppingMode.value) return mapped
     return mapped.sort((a, b) => {
       if (a.hasUnchecked === b.hasUnchecked) return 0
@@ -318,6 +332,7 @@ export function useTodoStorage(storage = localStorage) {
     confettiTrigger,
     displayTodos,
     displayLists,
+    shoppingTodos,
     addList,
     removeList,
     renameList,
