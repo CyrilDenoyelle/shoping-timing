@@ -45,7 +45,7 @@ function getProgress(todo, now) {
   const lastStarted = new Date(timings[timings.length - 1][1]).getTime()
   const elapsed = now - lastStarted
   const progress = Math.ceil((elapsed / todo.averageIntervalMs) * 10) / 10
-  return Math.max(0, Math.min(1, progress - 0.3))
+  return Math.max(0, progress - 0.1)
 }
 
 function migrateTodo(todo) {
@@ -222,41 +222,31 @@ export function useTodoStorage(storage = localStorage) {
     now.value = Date.now()
   }
 
-  const sortedTodos = computed(() => {
-    const n = now.value
-    return [...todos.value].sort((a, b) => {
-      if (a.done !== b.done) return a.done ? 1 : -1
-      if (a.done) return getProgress(b, n) - getProgress(a, n)
-      return 0
-    })
-  })
-
-  const displayTodos = computed(() => {
-    const n = now.value
-    return sortedTodos.value.map((todo) => ({
+  const toDisplayTodo = (todo) => {
+    const raw = getProgress(todo, now.value)
+    return {
       ...todo,
-      progress: getProgress(todo, n),
-    }))
-  })
+      x: Math.round((Math.min(1, raw) - (Math.max(1, raw) - 1)) * 100) / 100,
+      progress: Math.round(Math.min(1, raw) * 100) / 100,
+    }
+  }
+
+  const sortByProgress = (a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1
+    if (a.done) return b.x - a.x
+    return 0
+  }
+
+  const displayTodos = computed(() =>
+    [...todos.value].map(toDisplayTodo).sort(sortByProgress)
+  )
 
   const displayLists = computed(() => {
-    const n = now.value
-    const mapped = lists.value.map((list) => {
-      const sorted = [...list.todos].sort((a, b) => {
-        if (a.done !== b.done) return a.done ? 1 : -1
-        if (a.done) return getProgress(b, n) - getProgress(a, n)
-        return 0
-      })
-      const hasUnchecked = list.todos.some((t) => !t.done)
-      return {
-        ...list,
-        hasUnchecked,
-        displayTodos: sorted.map((todo) => ({
-          ...todo,
-          progress: getProgress(todo, n),
-        })),
-      }
-    })
+    const mapped = lists.value.map((list) => ({
+      ...list,
+      hasUnchecked: list.todos.some((t) => !t.done),
+      displayTodos: [...list.todos].map(toDisplayTodo).sort(sortByProgress),
+    }))
     if (!shoppingMode.value) return mapped
     return mapped.sort((a, b) => {
       if (a.hasUnchecked === b.hasUnchecked) return 0
