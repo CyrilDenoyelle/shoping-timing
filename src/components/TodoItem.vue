@@ -58,38 +58,31 @@ const cancelEdit = () => {
   editText.value = ''
 }
 
-const RING_RADIUS = 8
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
-const ringOffset = computed(() => {
-  const p = Math.min(props.todo.progress ?? 0, 1)
-  return RING_CIRCUMFERENCE * (p)
+const progressPercent = computed(() => {
+  if (!props.todo.done) return 0
+  return Math.min(props.todo.progress ?? 0, 1) * 100
 })
 </script>
 
 <template>
   <div class="item" :class="{ done: todo.done, compact: compact }">
+    <div
+      v-if="todo.done"
+      class="progress-bar"
+      :style="{ width: progressPercent + '%' }"
+    />
+
     <button class="check" @click="emit('toggle')" aria-label="Toggle">
-      <svg class="ring-svg" width="20" height="20" viewBox="0 0 20 20">
-        <circle
-          class="ring-track"
-          cx="10" cy="10" :r="RING_RADIUS"
-          fill="none"
-          stroke-width="2"
-        />
-        <circle
-          class="ring-fill"
-          cx="10" cy="10" :r="RING_RADIUS"
-          fill="none"
-          stroke-width="2"
-          stroke-linecap="round"
-          :stroke-dasharray="RING_CIRCUMFERENCE"
-          :stroke-dashoffset="ringOffset"
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect
+          class="check-box"
+          x="1" y="1" width="14" height="14" rx="3"
+          stroke-width="1.5"
         />
         <polyline
           v-if="todo.done"
-          class="ring-check"
-          points="7 10.5 9.5 13 13.5 7.5"
-          fill="none"
+          class="check-tick"
+          points="4.5 8.5 7 11 11.5 5.5"
           stroke-width="1.8"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -140,15 +133,18 @@ const ringOffset = computed(() => {
 
 <style scoped>
 .item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.15rem 0;
+  padding: 0.15rem 0.35rem;
   transition: padding 0.3s, gap 0.3s, opacity 0.3s;
+  overflow: hidden;
+  border-radius: 6px;
 }
 
 .item.compact {
-  padding: 0;
+  padding: 0 0.35rem;
   gap: 0.25rem;
   opacity: 0.45;
 }
@@ -158,63 +154,68 @@ const ringOffset = computed(() => {
 }
 
 .item.compact .check {
-  width: 16px;
-  height: 16px;
-  min-width: 16px;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
 }
 
-.item.compact .ring-svg {
-  width: 16px;
-  height: 16px;
+.item.compact .check svg {
+  width: 14px;
+  height: 14px;
 }
 
 .item.compact .actions {
   display: none;
 }
 
+.progress-bar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: 0;
+  background: var(--accent);
+  opacity: 0.08;
+  border-radius: 6px;
+  transition: width 1.2s ease;
+  pointer-events: none;
+}
+
 .check {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
   padding: 0;
   background: none;
   border: none;
   cursor: pointer;
 }
 
-.ring-svg {
-  display: block;
-  transform: rotate(-90deg);
-}
-
-.ring-track {
+.check-box {
   stroke: var(--color-border);
+  fill: none;
   transition: stroke 0.3s;
 }
 
-.item:hover .ring-track {
+.item:hover .check-box {
   stroke: var(--color-border-hover);
 }
 
-.ring-fill {
+.item.done .check-box {
   stroke: var(--accent);
-  transition: stroke-dashoffset 1.5s linear;
+  opacity: 0.5;
 }
 
-.item.done .ring-fill {
-  opacity: 0.4;
-}
-
-.ring-check {
+.check-tick {
   stroke: var(--accent);
-  transform: rotate(90deg);
-  transform-origin: center;
 }
 
 .body {
+  position: relative;
   flex: 1;
   min-width: 0;
 }
@@ -258,8 +259,8 @@ const ringOffset = computed(() => {
   outline: none;
 }
 
-
 .actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.15rem;
