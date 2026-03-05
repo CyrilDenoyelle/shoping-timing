@@ -55,7 +55,7 @@ function getProgress(todo, now) {
   const lastStarted = new Date(timings[timings.length - 1][1]).getTime()
   const elapsed = now - lastStarted
   const progress = Math.ceil((elapsed / todo.averageIntervalMs) * 10) / 10
-  return Math.max(0, progress - 0.1)
+  return Math.max(0, progress - 0.3)
 }
 
 function migrateTodo(todo) {
