@@ -246,12 +246,12 @@ export function useTodoStorage(storage = localStorage) {
     if (!list) return
     const todo = list.todos.find((t) => t.id === id)
     if (!todo || !todo.timings?.length) return
-    todo.timings.pop()
-    if (todo.timings.length === 0) {
-      todo.done = false
+    const last = todo.timings[todo.timings.length - 1]
+    todo.done = !todo.done
+    if (last?.length === 2) {
+      todo.timings[todo.timings.length - 1].pop()
     } else {
-      const last = todo.timings[todo.timings.length - 1]
-      todo.done = last.length === 2
+      todo.timings.pop()
     }
     updateTodoAverage(todo)
   }
