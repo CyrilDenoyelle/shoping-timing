@@ -69,7 +69,7 @@ const progressPercent = computed(() => {
     <div
       v-if="todo.done"
       class="progress-bar"
-      :style="{ width: progressPercent + '%' }"
+      :style="{ width: (100 - progressPercent) + '%' }"
     />
 
     <button class="check" @click="emit('toggle')" aria-label="Toggle">
