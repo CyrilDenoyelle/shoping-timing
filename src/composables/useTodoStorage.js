@@ -49,7 +49,7 @@ const defaultLists = [
 
 function computeAverageIntervalMs(todo) {
   const timings = todo.timings ?? []
-  if (timings.length < 2) return Infinity
+  if (timings.length < 1) return Infinity
   const intervals = timings
     .map((t, i, arr) => i === 0 ? undefined : t[1] - arr[i - 1][1])
     .slice(1)

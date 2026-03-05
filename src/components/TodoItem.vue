@@ -13,6 +13,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  shoppingMode: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['toggle', 'remove', 'rename', 'undo'])
@@ -62,17 +66,23 @@ const progressPercent = computed(() => {
   if (!props.todo.done) return 0
   return Math.min(props.todo.progress ?? 0, 1) * 100
 })
+
+const onRowClick = () => {
+  if (!props.shoppingMode || isEditing.value) return
+  emit('toggle')
+}
+
 </script>
 
 <template>
-  <div class="item" :class="{ done: todo.done, compact: compact }">
+  <div class="item" :class="{ done: todo.done, compact: compact, 'shopping': shoppingMode }" @click="onRowClick">
     <div
       v-if="todo.done"
       class="progress-bar"
       :style="{ width: (100 - progressPercent) + '%' }"
     />
 
-    <button class="check" @click="emit('toggle')" aria-label="Toggle">
+    <button class="check" @click.stop="emit('toggle')" aria-label="Toggle">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <rect
           class="check-box"
@@ -112,7 +122,7 @@ const progressPercent = computed(() => {
       <button
         v-if="hasTimings()"
         class="act"
-        @click="emit('undo')"
+        @click.stop="emit('undo')"
         aria-label="Annuler"
       >
         <IconUndo />
@@ -120,7 +130,7 @@ const progressPercent = computed(() => {
       <button
         class="act act-danger"
         :class="{ 'act-confirm': confirmingDelete }"
-        @click="handleDelete"
+        @click.stop="handleDelete"
         @blur="cancelDelete"
         aria-label="Supprimer"
       >
@@ -141,6 +151,10 @@ const progressPercent = computed(() => {
   transition: padding 0.3s, gap 0.3s, opacity 0.3s;
   overflow: hidden;
   border-radius: 6px;
+}
+
+.item.shopping {
+  cursor: pointer;
 }
 
 .item.compact {
