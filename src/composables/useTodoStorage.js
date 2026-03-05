@@ -3,18 +3,48 @@ import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 const STORAGE_KEY = 'shoping-timing-lists'
 const LEGACY_STORAGE_KEY = 'shoping-timing-todos'
 
-const TWO_MINUTES_MS = 2 * 60 * 1000
+const HOUR = 3_600_000
+const DAY = 24 * HOUR
+const NOW = Date.now()
+
+function demoTimings(intervalDays, count, agoFraction, done = true) {
+  const interval = intervalDays * DAY
+  const lastEnd = NOW - interval * agoFraction
+  const timings = []
+  for (let i = count; i >= 1; i--) {
+    const end = lastEnd - interval * i
+    timings.push([end - 5000, end])
+  }
+  if (done) {
+    timings.push([lastEnd - 5000, lastEnd])
+  } else {
+    timings.push([lastEnd - 5000])
+  }
+  return {timings, averageIntervalMs: interval }
+}
 
 const defaultLists = [
-  {
-    id: 'default',
-    name: 'Ma liste',
-    todos: [
-      { id: 1, text: 'Apprendre Vue.js', done: true, timings: [[Date.now(), Date.now() + TWO_MINUTES_MS]], averageIntervalMs: TWO_MINUTES_MS },
-      { id: 2, text: 'Créer une todo list', done: true, timings: [[Date.now(), Date.now() + TWO_MINUTES_MS]], averageIntervalMs: TWO_MINUTES_MS },
-      { id: 3, text: 'Profiter du framework', done: false, timings: [], averageIntervalMs: Infinity },
-    ],
-  },
+  {id: 'demo-manger', name: 'Manger', todos: [
+    { id: 1, text: 'Lait', done: true, ...demoTimings(4, 5, 0.9) },
+    { id: 2, text: 'Pain', done: true, ...demoTimings(2, 6, 0.3) },
+    { id: 3, text: 'Œufs', done: true, ...demoTimings(7, 4, 0.6) },
+    { id: 4, text: 'Beurre', done: true, ...demoTimings(14, 3, 0.75) },
+    { id: 5, text: 'Pâtes', done: false, ...demoTimings(10, 3, 0.4, false) },
+    { id: 6, text: 'Riz', done: false, ...demoTimings(21, 2, 0.1, false) },
+    { id: 7, text: 'Fruits', done: false, ...demoTimings(5, 4, 0.2, false) },
+  ]},
+  {id: 'demo-maison', name: 'Maison', todos: [
+    { id: 8, text: 'Éponges', done: true, ...demoTimings(30, 3, 0.85) },
+    { id: 9, text: 'Lessive', done: false, ...demoTimings(21, 2, 0.5, false) },
+    { id: 10, text: 'Liquide vaisselle', done: true, ...demoTimings(25, 3, 0.15) },
+    { id: 11, text: 'Sacs poubelle', done: false, ...demoTimings(30, 2, 0.7, false) },
+    { id: 12, text: 'Sopalin', done: true, ...demoTimings(14, 4, 0.5) },
+  ]},
+  {id: 'demo-hygiene', name: 'Hygiène', todos: [
+    { id: 13, text: 'Dentifrice', done: true, ...demoTimings(45, 2, 0.65) },
+    { id: 14, text: 'Shampooing', done: false, ...demoTimings(30, 3, 0.35, false) },
+    { id: 15, text: 'Savon', done: true, ...demoTimings(20, 3, 0.95) },
+  ]},
 ]
 
 function computeAverageIntervalMs(todo) {
