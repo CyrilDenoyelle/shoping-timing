@@ -112,7 +112,7 @@ const ringOffset = computed(() => {
         v-else
         class="label"
         @dblclick.stop="startEdit"
-      >{{ todo.text }}</span>
+      >{{ todo.text }}<span v-if="todo.formattedInterval" class="interval">{{ todo.formattedInterval }}</span></span>
     </div>
 
     <div class="actions">
@@ -231,6 +231,19 @@ const ringOffset = computed(() => {
   opacity: 0.6;
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, currentColor 80%, transparent);
+}
+
+.interval {
+  margin-left: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.item.compact .interval {
+  display: none;
 }
 
 .edit-input {

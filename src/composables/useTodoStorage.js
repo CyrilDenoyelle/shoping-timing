@@ -32,6 +32,16 @@ function updateTodoAverage(todo) {
   todo.averageIntervalMs = computeAverageIntervalMs(todo)
 }
 
+function formatMs(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return null
+  if (ms < 60_000) return '< 1 min'
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`
+  if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`
+  if (ms < 7 * 86_400_000) return `${Math.round(ms / 86_400_000)} j`
+  if (ms < 30 * 86_400_000) return `${Math.round(ms / (7 * 86_400_000))} sem`
+  return `${Math.round(ms / (30 * 86_400_000))} mois`
+}
+
 function getProgress(todo, now) {
   if (!todo.done) return 1
   const timings = todo.timings ?? []
@@ -228,6 +238,7 @@ export function useTodoStorage(storage = localStorage) {
       ...todo,
       x: Math.round((Math.min(1, raw) - (Math.max(1, raw) - 1)) * 100) / 100,
       progress: Math.round(Math.min(1, raw) * 100) / 100,
+      formattedInterval: formatMs(todo.averageIntervalMs),
     }
   }
 
