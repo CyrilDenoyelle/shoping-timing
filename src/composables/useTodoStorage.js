@@ -298,15 +298,10 @@ export function useTodoStorage(storage = localStorage) {
         : list.todos
       return {
         ...list,
-        hasUnchecked: list.todos.some((t) => !t.done),
         displayTodos: [...todos].map(toDisplayTodo).sort(sortByProgress),
       }
     })
-    if (!shoppingMode.value) return mapped
-    return mapped.sort((a, b) => {
-      if (a.hasUnchecked === b.hasUnchecked) return 0
-      return a.hasUnchecked ? -1 : 1
-    })
+    return mapped
   })
 
   const hasAnyUnchecked = computed(() =>
