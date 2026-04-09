@@ -17,6 +17,8 @@ const {
   toggleTodo,
   removeTodo,
   renameTodo,
+  setQuantity,
+  setUnit,
   undoLastTiming,
 } = useTodoStorage()
 
@@ -115,6 +117,8 @@ const onDragEnd = () => {
           @remove="removeTodo(todo.listId, todo.id)"
           @rename="(id, text) => renameTodo(todo.listId, id, text)"
           @undo="undoLastTiming(todo.listId, todo.id)"
+          @set-quantity="(qty) => setQuantity(todo.listId, todo.id, qty)"
+          @set-unit="(unit, factor) => setUnit(todo.listId, todo.id, unit, factor)"
         />
       </TransitionGroup>
     </section>
@@ -174,6 +178,8 @@ const onDragEnd = () => {
           @remove="removeTodo(list.id, todo.id)"
           @rename="(id, text) => renameTodo(list.id, id, text)"
           @undo="undoLastTiming(list.id, todo.id)"
+          @set-quantity="(qty) => setQuantity(list.id, todo.id, qty)"
+          @set-unit="(unit, factor) => setUnit(list.id, todo.id, unit, factor)"
         />
       </TransitionGroup>
 

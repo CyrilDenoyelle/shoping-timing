@@ -1,65 +1,124 @@
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { ref, watch, computed } from 'vue'
 
 const STORAGE_KEY = 'shoping-timing-lists'
 const LEGACY_STORAGE_KEY = 'shoping-timing-todos'
 
-const HOUR = 3_600_000
-const DAY = 24 * HOUR
+const DAY = 86_400_000
 const NOW = Date.now()
 
-function demoTimings(intervalDays, count, agoFraction, done = true) {
+const UNIT_GROUPS = {
+  mass:   { kg: 1000, g: 1 },
+  volume: { L: 1000, cL: 10, mL: 1 },
+}
+export const UNITS = ['', 'pcs', 'kg', 'g', 'L', 'cL', 'mL']
+
+export function getUnitGroup(unit) {
+  if (unit === '') return 'none'
+  for (const [name, group] of Object.entries(UNIT_GROUPS)) {
+    if (group[unit] != null) return name
+  }
+  return unit
+}
+
+export function getBaseUnit(unit) {
+  for (const group of Object.values(UNIT_GROUPS)) {
+    if (group[unit] != null) {
+      return Object.entries(group).find(([, v]) => v === 1)?.[0] ?? unit
+    }
+  }
+  return unit
+}
+
+export function needsConversionModal(fromUnit, toUnit) {
+  if (fromUnit === toUnit) return false
+  return getUnitGroup(fromUnit) !== getUnitGroup(toUnit)
+}
+
+function convertQuantity(qty, fromUnit, toUnit, conversions = {}) {
+  if (fromUnit === toUnit) return qty
+  for (const group of Object.values(UNIT_GROUPS)) {
+    if (group[fromUnit] != null && group[toUnit] != null) {
+      return qty * group[fromUnit] / group[toUnit]
+    }
+  }
+  const fromBase = getBaseUnit(fromUnit)
+  const toBase = getBaseUnit(toUnit)
+  const key = `${fromBase}:${toBase}`
+  const reverseKey = `${toBase}:${fromBase}`
+  if (conversions[key] != null) {
+    const qtyInFromBase = convertQuantity(qty, fromUnit, fromBase)
+    return convertQuantity(qtyInFromBase * conversions[key], toBase, toUnit)
+  }
+  if (conversions[reverseKey] != null) {
+    const qtyInFromBase = convertQuantity(qty, fromUnit, fromBase)
+    return convertQuantity(qtyInFromBase / conversions[reverseKey], toBase, toUnit)
+  }
+  return qty
+}
+
+function demoTimings(intervalDays, count, agoFraction, done = true, quantity = 1, unit = '') {
   const interval = intervalDays * DAY
   const lastEnd = NOW - interval * agoFraction
   const timings = []
   for (let i = count; i >= 1; i--) {
     const end = lastEnd - interval * i
-    timings.push([end - 5000, end])
+    timings.push({ start: end - 5000, end, quantity, unit })
   }
   if (done) {
-    timings.push([lastEnd - 5000, lastEnd])
+    timings.push({ start: lastEnd - 5000, end: lastEnd, quantity, unit })
   } else {
-    timings.push([lastEnd - 5000])
+    timings.push({ start: lastEnd - 5000 })
   }
-  return {timings, averageIntervalMs: interval }
+  return { timings, quantity, unit, conversions: {} }
 }
 
 const defaultLists = [
   {id: 'demo-manger', name: 'Manger', todos: [
-    { id: 1, text: 'Lait', done: true, ...demoTimings(4, 5, 0.9) },
-    { id: 2, text: 'Pain', done: true, ...demoTimings(2, 6, 0.3) },
-    { id: 3, text: 'Œufs', done: true, ...demoTimings(7, 4, 0.6) },
-    { id: 4, text: 'Beurre', done: true, ...demoTimings(14, 3, 0.75) },
-    { id: 5, text: 'Pâtes', done: false, ...demoTimings(10, 3, 0.4, false) },
-    { id: 6, text: 'Riz', done: false, ...demoTimings(21, 2, 0.1, false) },
-    { id: 7, text: 'Fruits', done: false, ...demoTimings(5, 4, 0.2, false) },
+    { id: 1, text: 'Lait', done: true, ...demoTimings(4, 5, 0.9, true, 2, 'L') },
+    { id: 2, text: 'Pain', done: true, ...demoTimings(2, 6, 0.3, true, 1, '') },
+    { id: 3, text: 'Œufs', done: true, ...demoTimings(7, 4, 0.6, true, 6, 'pcs') },
+    { id: 4, text: 'Beurre', done: true, ...demoTimings(14, 3, 0.75, true, 250, 'g') },
+    { id: 5, text: 'Pâtes', done: false, ...demoTimings(10, 3, 0.4, false, 500, 'g') },
+    { id: 6, text: 'Riz', done: false, ...demoTimings(21, 2, 0.1, false, 1, 'kg') },
+    { id: 7, text: 'Fruits', done: false, ...demoTimings(5, 4, 0.2, false, 1, 'kg') },
   ]},
   {id: 'demo-maison', name: 'Maison', todos: [
-    { id: 8, text: 'Éponges', done: true, ...demoTimings(30, 3, 0.85) },
-    { id: 9, text: 'Lessive', done: false, ...demoTimings(21, 2, 0.5, false) },
-    { id: 10, text: 'Liquide vaisselle', done: true, ...demoTimings(25, 3, 0.15) },
-    { id: 11, text: 'Sacs poubelle', done: false, ...demoTimings(30, 2, 0.7, false) },
-    { id: 12, text: 'Sopalin', done: true, ...demoTimings(14, 4, 0.5) },
+    { id: 8, text: 'Éponges', done: true, ...demoTimings(30, 3, 0.85, true, 3, 'pcs') },
+    { id: 9, text: 'Lessive', done: false, ...demoTimings(21, 2, 0.5, false, 2, 'L') },
+    { id: 10, text: 'Liquide vaisselle', done: true, ...demoTimings(25, 3, 0.15, true, 500, 'mL') },
+    { id: 11, text: 'Sacs poubelle', done: false, ...demoTimings(30, 2, 0.7, false, 1, '') },
+    { id: 12, text: 'Sopalin', done: true, ...demoTimings(14, 4, 0.5, true, 6, 'pcs') },
   ]},
   {id: 'demo-hygiene', name: 'Hygiène', todos: [
-    { id: 13, text: 'Dentifrice', done: true, ...demoTimings(45, 2, 0.65) },
-    { id: 14, text: 'Shampooing', done: false, ...demoTimings(30, 3, 0.35, false) },
-    { id: 15, text: 'Savon', done: true, ...demoTimings(20, 3, 0.95) },
+    { id: 13, text: 'Dentifrice', done: true, ...demoTimings(45, 2, 0.65, true, 1, '') },
+    { id: 14, text: 'Shampooing', done: false, ...demoTimings(30, 3, 0.35, false, 250, 'mL') },
+    { id: 15, text: 'Savon', done: true, ...demoTimings(20, 3, 0.95, true, 1, '') },
   ]},
 ]
 
-function computeAverageIntervalMs(todo) {
+function computeWeightedIntervalMs(todo) {
   const timings = todo.timings ?? []
-  if (timings.length < 1) return Infinity
-  const intervals = timings
-    .map((t, i, arr) => i === 0 ? undefined : t[1] - arr[i - 1][1])
-    .slice(1)
-    .filter((i) => !Number.isNaN(i))
-  if (intervals.length === 0) return Infinity
-  return intervals.reduce((a, b) => a + b, 0) / intervals.length
+  if (timings.length < 2) return Infinity
+  const currentUnit = todo.unit || ''
+  const conversions = todo.conversions ?? {}
+  const rates = []
+  for (let i = 0; i < timings.length - 1; i++) {
+    const t = timings[i]
+    const tNext = timings[i + 1]
+    if (t.end == null || tNext.end == null) continue
+    const interval = tNext.end - t.end
+    if (interval <= 0) continue
+    const qty = convertQuantity(t.quantity ?? 1, t.unit ?? '', currentUnit, conversions)
+    rates.push(qty / interval)
+  }
+  if (rates.length === 0) return Infinity
+  const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length
+  if (avgRate <= 0) return Infinity
+  return (todo.quantity ?? 1) / avgRate
 }
 
 function updateTodoAverage(todo) {
-  todo.averageIntervalMs = computeAverageIntervalMs(todo)
+  todo.averageIntervalMs = computeWeightedIntervalMs(todo)
 }
 
 function formatMs(ms) {
@@ -82,16 +141,31 @@ function getProgress(todo, now) {
   ) {
     return 0
   }
-  const lastStarted = new Date(timings[timings.length - 1][1]).getTime()
-  const elapsed = now - lastStarted
+  const lastEnd = timings[timings.length - 1].end
+  if (lastEnd == null) return 0
+  const elapsed = now - lastEnd
   const progress = Math.ceil((elapsed / todo.averageIntervalMs) * 10) / 10
   return Math.max(0, progress - 0.5)
 }
 
-function migrateTodo(todo) {
-  if (!Array.isArray(todo.timings)) {
-    todo.timings = []
+function migrateTiming(t) {
+  if (Array.isArray(t)) {
+    const obj = { start: t[0] }
+    if (t[1] != null) obj.end = t[1]
+    obj.quantity ??= 1
+    obj.unit ??= ''
+    return obj
   }
+  t.quantity ??= 1
+  t.unit ??= ''
+  return t
+}
+
+function migrateTodo(todo) {
+  todo.timings = (todo.timings ?? []).map(migrateTiming)
+  if (todo.quantity == null) todo.quantity = 1
+  if (todo.unit == null) todo.unit = ''
+  if (todo.conversions == null) todo.conversions = {}
   updateTodoAverage(todo)
   return todo
 }
@@ -206,26 +280,34 @@ export function useTodoStorage(storage = localStorage) {
       done: false,
       timings: [],
       averageIntervalMs: Infinity,
+      quantity: 1,
+      unit: '',
+      conversions: {},
     })
   }
 
-  const toggleTodo = (listId, id) => {
+  const findTodo = (listId, id) => {
     const list = findListById(listId)
-    if (!list) return
-    const todo = list.todos.find((t) => t.id === id)
+    return list?.todos.find((t) => t.id === id)
+  }
+
+  const toggleTodo = (listId, id) => {
+    const todo = findTodo(listId, id)
     if (!todo) return
     todo.done = !todo.done
     if (todo.done) {
       if (todo.timings.length === 0) {
-        todo.timings.push([Date.now(), Date.now()])
+        todo.timings.push({ start: Date.now(), end: Date.now(), quantity: todo.quantity, unit: todo.unit })
       } else {
-        todo.timings[todo.timings.length - 1].push(Date.now())
+        const last = todo.timings[todo.timings.length - 1]
+        last.end = Date.now()
+        last.quantity = todo.quantity
+        last.unit = todo.unit
       }
-      updateTodoAverage(todo)
     } else {
-      todo.timings.push([Date.now()])
-      updateTodoAverage(todo)
+      todo.timings.push({ start: Date.now() })
     }
+    updateTodoAverage(todo)
   }
 
   const removeTodo = (listId, id) => {
@@ -235,21 +317,41 @@ export function useTodoStorage(storage = localStorage) {
   }
 
   const renameTodo = (listId, id, text) => {
-    const list = findListById(listId)
-    if (!list) return
-    const todo = list.todos.find((t) => t.id === id)
+    const todo = findTodo(listId, id)
     if (todo) todo.text = (text || 'Sans titre').trim()
   }
 
+  const setQuantity = (listId, id, quantity) => {
+    const todo = findTodo(listId, id)
+    if (todo) {
+      todo.quantity = Math.max(0.1, quantity)
+      updateTodoAverage(todo)
+    }
+  }
+
+  const setUnit = (listId, id, newUnit, conversionFactor = null) => {
+    const todo = findTodo(listId, id)
+    if (!todo) return
+    const oldUnit = todo.unit
+    if (conversionFactor != null) {
+      if (!todo.conversions) todo.conversions = {}
+      const fromBase = getBaseUnit(oldUnit)
+      const toBase = getBaseUnit(newUnit)
+      todo.conversions[`${fromBase}:${toBase}`] = conversionFactor
+    }
+    todo.unit = newUnit
+    updateTodoAverage(todo)
+  }
+
   const undoLastTiming = (listId, id) => {
-    const list = findListById(listId)
-    if (!list) return
-    const todo = list.todos.find((t) => t.id === id)
+    const todo = findTodo(listId, id)
     if (!todo || !todo.timings?.length) return
     const last = todo.timings[todo.timings.length - 1]
     todo.done = !todo.done
-    if (last?.length === 2) {
-      todo.timings[todo.timings.length - 1].pop()
+    if (last?.end != null) {
+      delete last.end
+      delete last.quantity
+      delete last.unit
     } else {
       todo.timings.pop()
     }
@@ -337,6 +439,8 @@ export function useTodoStorage(storage = localStorage) {
     toggleTodo,
     removeTodo,
     renameTodo,
+    setQuantity,
+    setUnit,
     undoLastTiming,
     toggleShoppingMode,
     refreshNow,
