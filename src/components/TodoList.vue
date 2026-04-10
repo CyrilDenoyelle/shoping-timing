@@ -20,7 +20,6 @@ const {
   renameTodo,
   setQuantity,
   setUnit,
-  undoLastTiming,
 } = useTodoStorage()
 
 const showNewList = ref(false)
@@ -125,9 +124,8 @@ const scrollToTodo = (listId, todoId) => {
           @toggle="toggleTodo(todo.listId, todo.id)"
           @remove="removeTodo(todo.listId, todo.id)"
           @rename="(id, text) => renameTodo(todo.listId, id, text)"
-          @undo="undoLastTiming(todo.listId, todo.id)"
           @set-quantity="(qty) => setQuantity(todo.listId, todo.id, qty)"
-          @set-unit="(unit, factor, newQty) => { setUnit(todo.listId, todo.id, unit, factor); if (newQty != null) setQuantity(todo.listId, todo.id, newQty) }"
+          @set-unit="(unit, factor, newQty) => setUnit(todo.listId, todo.id, unit, factor, newQty)"
         />
       </TransitionGroup>
     </section>
@@ -189,9 +187,8 @@ const scrollToTodo = (listId, todoId) => {
             @toggle="toggleTodo(list.id, todo.id)"
             @remove="removeTodo(list.id, todo.id)"
             @rename="(id, text) => renameTodo(list.id, id, text)"
-            @undo="undoLastTiming(list.id, todo.id)"
             @set-quantity="(qty) => setQuantity(list.id, todo.id, qty)"
-            @set-unit="(unit, factor, newQty) => { setUnit(list.id, todo.id, unit, factor); if (newQty != null) setQuantity(list.id, todo.id, newQty) }"
+            @set-unit="(unit, factor, newQty) => setUnit(list.id, todo.id, unit, factor, newQty)"
           />
         </div>
       </TransitionGroup>

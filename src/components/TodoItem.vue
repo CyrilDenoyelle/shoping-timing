@@ -2,7 +2,6 @@
 import { ref, nextTick, computed } from 'vue'
 import IconTrash from './icons/IconTrash.vue'
 import IconTrashOpen from './icons/IconTrashOpen.vue'
-import IconUndo from './icons/IconUndo.vue'
 import { UNITS, needsConversionModal, getBaseUnit, unitScale } from '../composables/useTodoStorage'
 import UnitConvertModal from './UnitConvertModal.vue'
 
@@ -21,9 +20,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['toggle', 'remove', 'rename', 'undo', 'set-quantity', 'set-unit'])
-
-const hasTimings = () => (props.todo.timings?.length ?? 0) > 0
+const emit = defineEmits(['toggle', 'remove', 'rename', 'set-quantity', 'set-unit'])
 
 const isEditing = ref(false)
 const editText = ref('')
@@ -248,14 +245,6 @@ const onRowClick = () => {
 
     <div class="actions">
       <button
-        v-if="hasTimings()"
-        class="act"
-        @click.stop="emit('undo')"
-        aria-label="Annuler"
-      >
-        <IconUndo />
-      </button>
-      <button
         class="act act-danger"
         :class="{ 'act-confirm': confirmingDelete }"
         @click.stop="handleDelete"
@@ -266,18 +255,18 @@ const onRowClick = () => {
         <IconTrash v-else />
       </button>
     </div>
-  </div>
 
-  <UnitConvertModal
-    :visible="showConvertModal"
-    :from-unit="todo.unit ?? ''"
-    :to-unit="pendingUnit ?? ''"
-    :existing-factor="existingFactor"
-    :current-interval-ms="todo.averageIntervalMs"
-    :current-quantity="todo.quantity ?? 1"
-    @confirm="onConvertConfirm"
-    @cancel="onConvertCancel"
-  />
+    <UnitConvertModal
+      :visible="showConvertModal"
+      :from-unit="todo.unit ?? ''"
+      :to-unit="pendingUnit ?? ''"
+      :existing-factor="existingFactor"
+      :current-interval-ms="todo.averageIntervalMs"
+      :current-quantity="todo.quantity ?? 1"
+      @confirm="onConvertConfirm"
+      @cancel="onConvertCancel"
+    />
+  </div>
 </template>
 
 <style scoped>

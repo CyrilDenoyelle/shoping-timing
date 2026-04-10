@@ -1,4 +1,4 @@
-import { ref, watch, computed } from 'vue'
+import { ref, reactive, watch, computed } from 'vue'
 
 const STORAGE_KEY = 'shoping-timing-lists'
 const LEGACY_STORAGE_KEY = 'shoping-timing-todos'
@@ -218,6 +218,8 @@ function generateId() {
 // Shared singleton state
 const shoppingMode = ref(false)
 const confettiTrigger = ref(0)
+const undoStack = reactive([])
+const redoStack = reactive([])
 let instance = null
 
 export function useTodoStorage(storage = localStorage) {
@@ -301,19 +303,34 @@ export function useTodoStorage(storage = localStorage) {
   const toggleTodo = (listId, id) => {
     const todo = findTodo(listId, id)
     if (!todo) return
+
+    const entry = { type: 'toggle', listId, todoId: id, wasDone: todo.done }
     todo.done = !todo.done
+
     if (todo.done) {
       if (todo.timings.length === 0) {
-        todo.timings.push({ start: Date.now(), end: Date.now(), quantity: todo.quantity, unit: todo.unit })
+        const timing = { start: Date.now(), end: Date.now(), quantity: todo.quantity, unit: todo.unit }
+        todo.timings.push(timing)
+        entry.timingAction = 'pushed'
+        entry.timing = { ...timing }
       } else {
         const last = todo.timings[todo.timings.length - 1]
+        entry.timingAction = 'modified'
+        entry.prev = { end: last.end, quantity: last.quantity, unit: last.unit }
         last.end = Date.now()
         last.quantity = todo.quantity
         last.unit = todo.unit
+        entry.next = { end: last.end, quantity: last.quantity, unit: last.unit }
       }
     } else {
-      todo.timings.push({ start: Date.now() })
+      const timing = { start: Date.now() }
+      todo.timings.push(timing)
+      entry.timingAction = 'pushed'
+      entry.timing = { ...timing }
     }
+
+    undoStack.push(entry)
+    redoStack.length = 0
     updateTodoAverage(todo)
   }
 
@@ -336,9 +353,20 @@ export function useTodoStorage(storage = localStorage) {
     }
   }
 
-  const setUnit = (listId, id, newUnit, conversionFactor = null) => {
+  const setUnit = (listId, id, newUnit, conversionFactor = null, newQty = null) => {
     const todo = findTodo(listId, id)
     if (!todo) return
+
+    const entry = {
+      type: 'unit-change',
+      listId, todoId: id,
+      oldUnit: todo.unit,
+      newUnit,
+      oldQuantity: todo.quantity,
+      newQuantity: newQty != null ? Math.max(0.1, newQty) : todo.quantity,
+      oldConversions: JSON.parse(JSON.stringify(todo.conversions ?? {})),
+    }
+
     const oldUnit = todo.unit
     if (conversionFactor != null) {
       if (!todo.conversions) todo.conversions = {}
@@ -348,23 +376,79 @@ export function useTodoStorage(storage = localStorage) {
       todo.conversions[`${fromBase}:${toBase}`] = baseFactor
     }
     todo.unit = newUnit
+    if (newQty != null) todo.quantity = Math.max(0.1, newQty)
+
+    entry.newConversions = JSON.parse(JSON.stringify(todo.conversions))
+
+    undoStack.push(entry)
+    redoStack.length = 0
     updateTodoAverage(todo)
   }
 
-  const undoLastTiming = (listId, id) => {
-    const todo = findTodo(listId, id)
-    if (!todo || !todo.timings?.length) return
-    const last = todo.timings[todo.timings.length - 1]
-    todo.done = !todo.done
-    if (last?.end != null) {
-      delete last.end
-      delete last.quantity
-      delete last.unit
-    } else {
-      todo.timings.pop()
+  const undoLastAction = () => {
+    while (undoStack.length > 0) {
+      const entry = undoStack.pop()
+      const todo = findTodo(entry.listId, entry.todoId)
+      if (!todo) continue
+
+      if (entry.type === 'toggle') {
+        if (entry.timingAction === 'pushed') {
+          todo.timings.pop()
+        } else if (entry.timingAction === 'modified') {
+          const last = todo.timings[todo.timings.length - 1]
+          if (last) {
+            const p = entry.prev
+            if (p.end !== undefined) last.end = p.end; else delete last.end
+            if (p.quantity !== undefined) last.quantity = p.quantity; else delete last.quantity
+            if (p.unit !== undefined) last.unit = p.unit; else delete last.unit
+          }
+        }
+        todo.done = entry.wasDone
+      } else if (entry.type === 'unit-change') {
+        todo.unit = entry.oldUnit
+        todo.quantity = entry.oldQuantity
+        todo.conversions = JSON.parse(JSON.stringify(entry.oldConversions))
+      }
+
+      redoStack.push(entry)
+      updateTodoAverage(todo)
+      return
     }
-    updateTodoAverage(todo)
   }
+
+  const redoLastAction = () => {
+    while (redoStack.length > 0) {
+      const entry = redoStack.pop()
+      const todo = findTodo(entry.listId, entry.todoId)
+      if (!todo) continue
+
+      if (entry.type === 'toggle') {
+        todo.done = !entry.wasDone
+        if (entry.timingAction === 'pushed') {
+          todo.timings.push({ ...entry.timing })
+        } else if (entry.timingAction === 'modified') {
+          const last = todo.timings[todo.timings.length - 1]
+          if (last) {
+            const n = entry.next
+            last.end = n.end
+            last.quantity = n.quantity
+            last.unit = n.unit
+          }
+        }
+      } else if (entry.type === 'unit-change') {
+        todo.unit = entry.newUnit
+        todo.quantity = entry.newQuantity
+        todo.conversions = JSON.parse(JSON.stringify(entry.newConversions))
+      }
+
+      undoStack.push(entry)
+      updateTodoAverage(todo)
+      return
+    }
+  }
+
+  const canUndo = computed(() => undoStack.length > 0)
+  const canRedo = computed(() => redoStack.length > 0)
 
   const now = ref(Date.now())
 
@@ -456,7 +540,10 @@ export function useTodoStorage(storage = localStorage) {
     renameTodo,
     setQuantity,
     setUnit,
-    undoLastTiming,
+    undoLastAction,
+    redoLastAction,
+    canUndo,
+    canRedo,
     toggleShoppingMode,
     refreshNow,
   }
