@@ -118,7 +118,7 @@ const onDragEnd = () => {
           @rename="(id, text) => renameTodo(todo.listId, id, text)"
           @undo="undoLastTiming(todo.listId, todo.id)"
           @set-quantity="(qty) => setQuantity(todo.listId, todo.id, qty)"
-          @set-unit="(unit, factor) => setUnit(todo.listId, todo.id, unit, factor)"
+          @set-unit="(unit, factor, newQty) => { setUnit(todo.listId, todo.id, unit, factor); if (newQty != null) setQuantity(todo.listId, todo.id, newQty) }"
         />
       </TransitionGroup>
     </section>
@@ -179,7 +179,7 @@ const onDragEnd = () => {
           @rename="(id, text) => renameTodo(list.id, id, text)"
           @undo="undoLastTiming(list.id, todo.id)"
           @set-quantity="(qty) => setQuantity(list.id, todo.id, qty)"
-          @set-unit="(unit, factor) => setUnit(list.id, todo.id, unit, factor)"
+          @set-unit="(unit, factor, newQty) => { setUnit(list.id, todo.id, unit, factor); if (newQty != null) setQuantity(list.id, todo.id, newQty) }"
         />
       </TransitionGroup>
 

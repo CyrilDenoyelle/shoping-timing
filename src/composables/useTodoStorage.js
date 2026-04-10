@@ -29,6 +29,13 @@ export function getBaseUnit(unit) {
   return unit
 }
 
+export function unitScale(unit) {
+  for (const group of Object.values(UNIT_GROUPS)) {
+    if (group[unit] != null) return group[unit]
+  }
+  return 1
+}
+
 export function needsConversionModal(fromUnit, toUnit) {
   if (fromUnit === toUnit) return false
   return getUnitGroup(fromUnit) !== getUnitGroup(toUnit)
@@ -96,7 +103,7 @@ const defaultLists = [
   ]},
 ]
 
-function computeWeightedIntervalMs(todo) {
+export function computeWeightedIntervalMs(todo) {
   const timings = todo.timings ?? []
   if (timings.length < 2) return Infinity
   const currentUnit = todo.unit || ''
@@ -121,9 +128,9 @@ function updateTodoAverage(todo) {
   todo.averageIntervalMs = computeWeightedIntervalMs(todo)
 }
 
-function formatMs(ms) {
+export function formatMs(ms) {
   if (!Number.isFinite(ms) || ms <= 0) return null
-  if (ms < 60_000) return '< 1 min'
+  if (ms < 60_000) return `${Math.round(ms / 1_000)} sec`
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`
   if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`
   if (ms < 7 * 86_400_000) return `${Math.round(ms / 86_400_000)} j`
@@ -337,7 +344,8 @@ export function useTodoStorage(storage = localStorage) {
       if (!todo.conversions) todo.conversions = {}
       const fromBase = getBaseUnit(oldUnit)
       const toBase = getBaseUnit(newUnit)
-      todo.conversions[`${fromBase}:${toBase}`] = conversionFactor
+      const baseFactor = conversionFactor * unitScale(newUnit) / unitScale(oldUnit)
+      todo.conversions[`${fromBase}:${toBase}`] = baseFactor
     }
     todo.unit = newUnit
     updateTodoAverage(todo)

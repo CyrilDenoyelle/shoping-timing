@@ -3,7 +3,7 @@ import { ref, nextTick, computed } from 'vue'
 import IconTrash from './icons/IconTrash.vue'
 import IconTrashOpen from './icons/IconTrashOpen.vue'
 import IconUndo from './icons/IconUndo.vue'
-import { UNITS, needsConversionModal, getBaseUnit } from '../composables/useTodoStorage'
+import { UNITS, needsConversionModal, getBaseUnit, unitScale } from '../composables/useTodoStorage'
 import UnitConvertModal from './UnitConvertModal.vue'
 
 const props = defineProps({
@@ -130,15 +130,18 @@ const selectUnit = (unit) => {
     const key = `${fromBase}:${toBase}`
     const reverse = `${toBase}:${fromBase}`
     const convs = props.todo.conversions ?? {}
-    existingFactor.value = convs[key] ?? (convs[reverse] ? 1 / convs[reverse] : null)
+    const baseFwd = convs[key] ?? (convs[reverse] ? 1 / convs[reverse] : null)
+    existingFactor.value = baseFwd != null
+      ? baseFwd * unitScale(oldUnit) / unitScale(unit)
+      : null
     showConvertModal.value = true
   } else {
     emit('set-unit', unit)
   }
 }
 
-const onConvertConfirm = (factor) => {
-  emit('set-unit', pendingUnit.value, factor)
+const onConvertConfirm = (factor, newQty) => {
+  emit('set-unit', pendingUnit.value, factor, newQty)
   showConvertModal.value = false
   pendingUnit.value = null
 }
@@ -270,6 +273,8 @@ const onRowClick = () => {
     :from-unit="todo.unit ?? ''"
     :to-unit="pendingUnit ?? ''"
     :existing-factor="existingFactor"
+    :current-interval-ms="todo.averageIntervalMs"
+    :current-quantity="todo.quantity ?? 1"
     @confirm="onConvertConfirm"
     @cancel="onConvertCancel"
   />

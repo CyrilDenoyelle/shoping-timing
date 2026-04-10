@@ -1,24 +1,48 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
+import { formatMs } from '../composables/useTodoStorage'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
   fromUnit: { type: String, default: '' },
   toUnit: { type: String, default: '' },
   existingFactor: { type: Number, default: null },
+  currentIntervalMs: { type: Number, default: null },
+  currentQuantity: { type: Number, default: 1 },
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
 
 const factor = ref('')
+const newQty = ref('')
 const inputRef = ref(null)
 
 const fromLabel = computed(() => props.fromUnit || 'achat')
 const toLabel = computed(() => props.toUnit || 'achat')
 
+const currentInterval = computed(() => formatMs(props.currentIntervalMs))
+
+const parsedFactor = computed(() => {
+  const v = parseFloat(factor.value)
+  return (!isNaN(v) && v > 0) ? v : null
+})
+
+const parsedQty = computed(() => {
+  const v = parseFloat(newQty.value)
+  return (!isNaN(v) && v > 0) ? v : null
+})
+
+const previewInterval = computed(() => {
+  if (!parsedFactor.value) return null
+  if (!Number.isFinite(props.currentIntervalMs) || props.currentIntervalMs <= 0) return null
+  const qty = parsedQty.value ?? (props.currentQuantity * parsedFactor.value)
+  return formatMs(props.currentIntervalMs * qty / (props.currentQuantity * parsedFactor.value))
+})
+
 watch(() => props.visible, (v) => {
   if (v) {
     factor.value = props.existingFactor != null ? String(props.existingFactor) : ''
+    newQty.value = ''
     nextTick(() => {
       inputRef.value?.focus?.()
       inputRef.value?.select?.()
@@ -27,10 +51,9 @@ watch(() => props.visible, (v) => {
 })
 
 const confirm = () => {
-  const val = parseFloat(factor.value)
-  if (!isNaN(val) && val > 0) {
-    emit('confirm', val)
-  }
+  if (!parsedFactor.value) return
+  const qty = parsedQty.value
+  emit('confirm', parsedFactor.value, qty ?? null)
 }
 
 const cancel = () => {
@@ -60,9 +83,31 @@ const cancel = () => {
             />
             <span class="to-unit">{{ toLabel }}</span>
           </div>
+          <div v-if="parsedFactor" class="qty-row">
+            <span class="qty-label">J'achèterai</span>
+            <input
+              v-model="newQty"
+              type="number"
+              step="any"
+              min="0"
+              class="factor-input qty-input"
+              :placeholder="String(Math.round((currentQuantity * parsedFactor) * 100) / 100)"
+              @keydown.enter="confirm"
+              @keydown.escape="cancel"
+            />
+            <span class="to-unit">{{ toLabel }}</span>
+          </div>
+          <Transition name="preview-fade">
+            <div v-if="previewInterval" class="preview">
+              <span class="preview-label">Intervalle :</span>
+              <span v-if="currentInterval" class="preview-current">{{ currentInterval }}</span>
+              <span v-if="currentInterval" class="preview-arrow">→</span>
+              <span class="preview-new">{{ previewInterval }}</span>
+            </div>
+          </Transition>
           <div class="actions">
             <button class="btn btn-cancel" @click="cancel">Annuler</button>
-            <button class="btn btn-confirm" @click="confirm" :disabled="!factor || parseFloat(factor) <= 0">Convertir</button>
+            <button class="btn btn-confirm" @click="confirm" :disabled="!parsedFactor">Convertir</button>
           </div>
         </div>
       </div>
@@ -189,6 +234,72 @@ const cancel = () => {
 .btn-confirm:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.qty-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.qty-label {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.qty-input {
+  width: 4rem;
+}
+
+.preview {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--color-background-soft);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.preview-label {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.preview-current {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.preview-arrow {
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+.preview-new {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.preview-fade-enter-active,
+.preview-fade-leave-active {
+  transition: opacity 0.2s ease, max-height 0.2s ease;
+  overflow: hidden;
+}
+
+.preview-fade-enter-from,
+.preview-fade-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+
+.preview-fade-enter-to,
+.preview-fade-leave-from {
+  max-height: 3rem;
 }
 
 .modal-enter-active,
