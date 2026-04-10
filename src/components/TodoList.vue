@@ -9,6 +9,7 @@ const {
   displayLists,
   shoppingMode,
   shoppingTodos,
+  allTodoTexts,
   addList,
   removeList,
   renameList,
@@ -102,6 +103,14 @@ const onDragEnd = () => {
   draggedIndex.value = null
   dragOverIndex.value = null
 }
+
+const scrollToTodo = (listId, todoId) => {
+  const el = document.querySelector(`[data-todo-id="${listId}-${todoId}"]`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.classList.add('highlight-flash')
+  setTimeout(() => el.classList.remove('highlight-flash'), 1200)
+}
 </script>
 
 <template>
@@ -168,22 +177,26 @@ const onDragEnd = () => {
       </div>
 
       <TransitionGroup name="fade" tag="div" class="items">
-        <TodoItem
+        <div
           v-for="todo in list.displayTodos"
           :key="todo.id"
-          :todo="todo"
-          :compact="shoppingMode && todo.done"
-          :shopping-mode="shoppingMode"
-          @toggle="toggleTodo(list.id, todo.id)"
-          @remove="removeTodo(list.id, todo.id)"
-          @rename="(id, text) => renameTodo(list.id, id, text)"
-          @undo="undoLastTiming(list.id, todo.id)"
-          @set-quantity="(qty) => setQuantity(list.id, todo.id, qty)"
-          @set-unit="(unit, factor, newQty) => { setUnit(list.id, todo.id, unit, factor); if (newQty != null) setQuantity(list.id, todo.id, newQty) }"
-        />
+          :data-todo-id="list.id + '-' + todo.id"
+        >
+          <TodoItem
+            :todo="todo"
+            :compact="shoppingMode && todo.done"
+            :shopping-mode="shoppingMode"
+            @toggle="toggleTodo(list.id, todo.id)"
+            @remove="removeTodo(list.id, todo.id)"
+            @rename="(id, text) => renameTodo(list.id, id, text)"
+            @undo="undoLastTiming(list.id, todo.id)"
+            @set-quantity="(qty) => setQuantity(list.id, todo.id, qty)"
+            @set-unit="(unit, factor, newQty) => { setUnit(list.id, todo.id, unit, factor); if (newQty != null) setQuantity(list.id, todo.id, newQty) }"
+          />
+        </div>
       </TransitionGroup>
 
-      <TodoInput @add="(text) => addTodo(list.id, text)" />
+      <TodoInput :suggestions="allTodoTexts" @add="(text) => addTodo(list.id, text)" @navigate="scrollToTodo" />
     </section>
 
     <div class="add-section">
@@ -371,5 +384,16 @@ const onDragEnd = () => {
 
 .new-input:focus {
   border-color: var(--accent);
+}
+
+@keyframes highlight-flash {
+  0% { background: transparent; }
+  15% { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  100% { background: transparent; }
+}
+
+:deep(.highlight-flash) {
+  animation: highlight-flash 1.2s ease-out;
+  border-radius: 6px;
 }
 </style>

@@ -414,6 +414,12 @@ export function useTodoStorage(storage = localStorage) {
     return mapped
   })
 
+  const allTodoTexts = computed(() =>
+    lists.value.flatMap((l) =>
+      l.todos.map((t) => ({ text: t.text, listName: l.name, listId: l.id, todoId: t.id }))
+    )
+  )
+
   const hasAnyUnchecked = computed(() =>
     lists.value.some((l) => l.todos.some((t) => !t.done))
   )
@@ -438,6 +444,7 @@ export function useTodoStorage(storage = localStorage) {
     displayTodos,
     displayLists,
     shoppingTodos,
+    allTodoTexts,
     addList,
     removeList,
     renameList,
