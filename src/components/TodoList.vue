@@ -108,7 +108,7 @@ const scrollToTodo = (listId, todoId) => {
   if (!el) return
   el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   el.classList.add('highlight-flash')
-  setTimeout(() => el.classList.remove('highlight-flash'), 1200)
+  setTimeout(() => el.classList.remove('highlight-flash'), 2500)
 }
 </script>
 

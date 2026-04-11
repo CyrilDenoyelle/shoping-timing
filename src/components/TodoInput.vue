@@ -9,27 +9,30 @@ const props = defineProps({
 })
 
 const input = ref('')
+const searchQuery = ref('')
 const emit = defineEmits(['add', 'navigate'])
 const activeIndex = ref(-1)
 const showDropdown = ref(false)
+let blurTimer = null
 
 const filtered = computed(() => {
-  const q = input.value.trim().toLowerCase()
+  const q = searchQuery.value.trim().toLowerCase()
   if (!q) return []
   return props.suggestions.filter((s) => s.text.toLowerCase().includes(q))
 })
 
 const visibleSuggestions = computed(() => {
-  return showDropdown.value && input.value.trim() && filtered.value.length > 0
+  return showDropdown.value && searchQuery.value.trim() && filtered.value.length > 0
     ? filtered.value.slice(0, 8)
     : []
 })
 
 const submit = () => {
-  const text = input.value.trim()
+  const text = (input.value || searchQuery.value).trim()
   if (text) {
     emit('add', text)
     input.value = ''
+    searchQuery.value = ''
     activeIndex.value = -1
     showDropdown.value = false
   }
@@ -37,6 +40,7 @@ const submit = () => {
 
 const selectSuggestion = (suggestion) => {
   input.value = suggestion.text
+  searchQuery.value = suggestion.text
   showDropdown.value = false
   activeIndex.value = -1
   submit()
@@ -45,11 +49,21 @@ const selectSuggestion = (suggestion) => {
 const goToItem = (suggestion) => {
   emit('navigate', suggestion.listId, suggestion.todoId)
   input.value = ''
+  searchQuery.value = ''
   showDropdown.value = false
   activeIndex.value = -1
 }
 
-const onInput = () => {
+const cancelBlurTimer = () => {
+  if (blurTimer != null) {
+    clearTimeout(blurTimer)
+    blurTimer = null
+  }
+}
+
+const onInput = (e) => {
+  cancelBlurTimer()
+  searchQuery.value = e.target.value
   showDropdown.value = true
   activeIndex.value = -1
 }
@@ -77,14 +91,24 @@ const onKeydown = (e) => {
 }
 
 const onBlur = () => {
-  setTimeout(() => {
+  cancelBlurTimer()
+  blurTimer = setTimeout(() => {
     showDropdown.value = false
     activeIndex.value = -1
+    blurTimer = null
   }, 150)
 }
 
-const onFocus = () => {
-  if (input.value.trim()) showDropdown.value = true
+const onCompositionUpdate = (e) => {
+  cancelBlurTimer()
+  searchQuery.value = e.target.value
+  showDropdown.value = true
+}
+
+const onFocus = (e) => {
+  cancelBlurTimer()
+  searchQuery.value = e.target.value
+  if (searchQuery.value.trim()) showDropdown.value = true
 }
 
 const highlight = (text, query) => {
@@ -125,6 +149,7 @@ const highlight = (text, query) => {
         placeholder="Ajouter une tâche…"
         class="input"
         @input="onInput"
+        @compositionupdate="onCompositionUpdate"
         @keydown="onKeydown"
         @blur="onBlur"
         @focus="onFocus"
@@ -141,7 +166,7 @@ const highlight = (text, query) => {
               class="dropdown-item"
               @mousedown.prevent="selectSuggestion(s)"
             >
-              <span v-html="highlight(s.text, input.trim())" />
+              <span v-html="highlight(s.text, searchQuery.trim())" />
               <span class="dropdown-list-name">{{ s.listName }}</span>
             </button>
             <button
