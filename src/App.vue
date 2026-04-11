@@ -5,12 +5,13 @@ import IconCart from './components/icons/IconCart.vue'
 import IconRefresh from './components/icons/IconRefresh.vue'
 import IconUndo from './components/icons/IconUndo.vue'
 import IconRedo from './components/icons/IconRedo.vue'
+import IconSort from './components/icons/IconSort.vue'
 import { useTodoStorage } from './composables/useTodoStorage'
 
 const {
-  shoppingMode, confettiTrigger,
+  shoppingMode, manualSort, confettiTrigger,
   canUndo, canRedo,
-  toggleShoppingMode, refreshNow,
+  toggleShoppingMode, toggleManualSort, refreshNow,
   undoLastAction, redoLastAction,
 } = useTodoStorage()
 </script>
@@ -43,6 +44,14 @@ const {
       @click="refreshNow"
     >
       <IconRefresh />
+    </button>
+    <button
+      class="tool-btn"
+      :class="{ active: manualSort }"
+      aria-label="Tri manuel"
+      @click="toggleManualSort"
+    >
+      <IconSort />
     </button>
     <button
       class="tool-btn"

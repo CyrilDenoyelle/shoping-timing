@@ -8,12 +8,14 @@ import { useTodoStorage } from '../composables/useTodoStorage'
 const {
   displayLists,
   shoppingMode,
+  manualSort,
   shoppingTodos,
   allTodoTexts,
   addList,
   removeList,
   renameList,
   moveList,
+  moveTodo,
   addTodo,
   toggleTodo,
   removeTodo,
@@ -110,6 +112,103 @@ const scrollToTodo = (listId, todoId) => {
   el.classList.add('highlight-flash')
   setTimeout(() => el.classList.remove('highlight-flash'), 2500)
 }
+
+const draggedTodoListId = ref(null)
+const draggedTodoIndex = ref(null)
+const dragOverTodoKey = ref(null)
+const dragOverHalf = ref(null)
+const dragOverListZone = ref(null)
+
+const isDraggingTodo = () => draggedTodoListId.value !== null
+
+const onTodoDragStart = (listId, index, e) => {
+  if (!manualSort.value) return
+  e.stopPropagation()
+  draggedTodoListId.value = listId
+  draggedTodoIndex.value = index
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', `todo:${listId}:${index}`)
+}
+
+const onTodoDragOver = (listId, index, e) => {
+  if (!manualSort.value || !isDraggingTodo()) return
+  e.preventDefault()
+  e.stopPropagation()
+  e.dataTransfer.dropEffect = 'move'
+  const rect = e.currentTarget.getBoundingClientRect()
+  const half = (e.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
+  dragOverTodoKey.value = `${listId}-${index}`
+  dragOverHalf.value = half
+  dragOverListZone.value = null
+}
+
+const onTodoDragLeave = (e) => {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    dragOverTodoKey.value = null
+    dragOverHalf.value = null
+  }
+}
+
+const computeDropIndex = (fromListId, fromIdx, toListId, targetIdx, half) => {
+  const sameList = fromListId === toListId
+  if (half === 'before') {
+    if (sameList && fromIdx < targetIdx) return targetIdx - 1
+    return targetIdx
+  }
+  if (sameList && fromIdx > targetIdx) return targetIdx + 1
+  return targetIdx
+}
+
+const onTodoDrop = (listId, index, e) => {
+  e.stopPropagation()
+  if (draggedTodoIndex.value === null) return
+  const fromList = draggedTodoListId.value
+  const fromIdx = draggedTodoIndex.value
+  const half = dragOverHalf.value ?? 'before'
+  const toIdx = computeDropIndex(fromList, fromIdx, listId, index, half)
+  if (fromList === listId && fromIdx === toIdx) {
+    resetTodoDrag()
+    return
+  }
+  moveTodo(fromList, fromIdx, listId, toIdx)
+  resetTodoDrag()
+}
+
+const onListZoneDragOver = (listId, e) => {
+  if (!manualSort.value || !isDraggingTodo()) return
+  e.preventDefault()
+  e.stopPropagation()
+  e.dataTransfer.dropEffect = 'move'
+  dragOverListZone.value = listId
+  dragOverTodoKey.value = null
+  dragOverHalf.value = null
+}
+
+const onListZoneDrop = (listId, todoCount, e) => {
+  e.stopPropagation()
+  if (draggedTodoIndex.value === null) return
+  const fromList = draggedTodoListId.value
+  const fromIdx = draggedTodoIndex.value
+  const toIdx = fromList === listId ? todoCount - 1 : todoCount
+  moveTodo(fromList, fromIdx, listId, toIdx)
+  resetTodoDrag()
+}
+
+const onListZoneDragLeave = () => {
+  dragOverListZone.value = null
+}
+
+const resetTodoDrag = () => {
+  draggedTodoListId.value = null
+  draggedTodoIndex.value = null
+  dragOverTodoKey.value = null
+  dragOverHalf.value = null
+  dragOverListZone.value = null
+}
+
+const onTodoDragEnd = () => {
+  resetTodoDrag()
+}
 </script>
 
 <template>
@@ -137,8 +236,9 @@ const scrollToTodo = (listId, todoId) => {
       :class="{
         'is-dragging': draggedIndex === index,
         'drag-over': dragOverIndex === index && draggedIndex !== index,
+        'list-todo-drop': dragOverListZone === list.id,
       }"
-      draggable="true"
+      :draggable="!isDraggingTodo()"
       @dragstart="onDragStart(index, $event)"
       @dragover="onDragOver(index, $event)"
       @dragleave="onDragLeave"
@@ -174,16 +274,35 @@ const scrollToTodo = (listId, todoId) => {
         </button>
       </div>
 
-      <TransitionGroup name="fade" tag="div" class="items">
+      <TransitionGroup
+        name="fade"
+        tag="div"
+        class="items"
+        @dragover="onListZoneDragOver(list.id, $event)"
+        @dragleave="onListZoneDragLeave"
+        @drop="onListZoneDrop(list.id, list.displayTodos.length, $event)"
+      >
         <div
-          v-for="todo in list.displayTodos"
+          v-for="(todo, ti) in list.displayTodos"
           :key="todo.id"
           :data-todo-id="list.id + '-' + todo.id"
+          :draggable="manualSort"
+          :class="{
+            'todo-dragging': manualSort && draggedTodoListId === list.id && draggedTodoIndex === ti,
+            'todo-drag-before': dragOverTodoKey === list.id + '-' + ti && dragOverHalf === 'before' && !(draggedTodoListId === list.id && draggedTodoIndex === ti),
+            'todo-drag-after': dragOverTodoKey === list.id + '-' + ti && dragOverHalf === 'after' && !(draggedTodoListId === list.id && draggedTodoIndex === ti),
+          }"
+          @dragstart="onTodoDragStart(list.id, ti, $event)"
+          @dragover="onTodoDragOver(list.id, ti, $event)"
+          @dragleave="onTodoDragLeave($event)"
+          @drop="onTodoDrop(list.id, ti, $event)"
+          @dragend="onTodoDragEnd"
         >
           <TodoItem
             :todo="todo"
             :compact="shoppingMode && todo.done"
             :shopping-mode="shoppingMode"
+            :reorderable="manualSort"
             @toggle="toggleTodo(list.id, todo.id)"
             @remove="removeTodo(list.id, todo.id)"
             @rename="(id, text) => renameTodo(list.id, id, text)"
@@ -314,7 +433,10 @@ const scrollToTodo = (listId, todoId) => {
   position: relative;
 }
 
-.fade-move,
+.fade-move {
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.35s ease;
@@ -392,5 +514,31 @@ const scrollToTodo = (listId, todoId) => {
 :deep(.highlight-flash) {
   animation: highlight-flash 1.2s ease-out;
   border-radius: 6px;
+}
+
+.todo-dragging {
+  opacity: 0.3;
+}
+
+.todo-drag-before {
+  box-shadow: 0 -2px 0 0 var(--accent);
+  border-radius: 6px;
+}
+
+.todo-drag-after {
+  box-shadow: 0 2px 0 0 var(--accent);
+  border-radius: 6px;
+}
+
+.list-todo-drop {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+[draggable="true"] {
+  cursor: grab;
+}
+
+[draggable="true"]:active {
+  cursor: grabbing;
 }
 </style>

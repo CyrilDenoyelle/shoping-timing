@@ -18,6 +18,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  reorderable: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['toggle', 'remove', 'rename', 'set-quantity', 'set-unit'])
@@ -162,12 +166,14 @@ const onRowClick = () => {
 </script>
 
 <template>
-  <div class="item" :class="{ done: todo.done, compact: compact, 'shopping': shoppingMode }" @click="onRowClick">
+  <div class="item" :class="{ done: todo.done, compact: compact, 'shopping': shoppingMode, 'reorderable': reorderable }" @click="onRowClick">
     <div
       v-if="todo.done"
       class="progress-bar"
       :style="{ width: (100 - progressPercent) + '%' }"
     />
+
+    <span v-if="reorderable" class="drag-grip" aria-label="Glisser pour réordonner">⠿</span>
 
     <button class="check" @click.stop="emit('toggle')" aria-label="Toggle">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -605,5 +611,24 @@ const onRowClick = () => {
   color: var(--danger) !important;
   transform: scale(1.3);
   transition: color 0.2s, transform 0.2s;
+}
+
+.drag-grip {
+  cursor: grab;
+  user-select: none;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+  opacity: 0.35;
+  transition: opacity 0.2s;
+  flex-shrink: 0;
+}
+
+.drag-grip:hover {
+  opacity: 0.8;
+}
+
+.drag-grip:active {
+  cursor: grabbing;
 }
 </style>

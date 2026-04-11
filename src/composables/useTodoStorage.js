@@ -215,8 +215,13 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2)
 }
 
+const SORT_MODE_KEY = 'shoping-timing-sort-mode'
+
 // Shared singleton state
 const shoppingMode = ref(false)
+const manualSort = ref((() => {
+  try { return localStorage.getItem(SORT_MODE_KEY) === 'manual' } catch { return false }
+})())
 const confettiTrigger = ref(0)
 const undoStack = reactive([])
 const redoStack = reactive([])
@@ -278,6 +283,15 @@ export function useTodoStorage(storage = localStorage) {
     if (fromIndex === toIndex) return
     const [moved] = lists.value.splice(fromIndex, 1)
     lists.value.splice(toIndex, 0, moved)
+  }
+
+  const moveTodo = (fromListId, fromIndex, toListId, toIndex) => {
+    const fromList = findListById(fromListId)
+    const toList = findListById(toListId ?? fromListId)
+    if (!fromList || !toList) return
+    if (fromListId === (toListId ?? fromListId) && fromIndex === toIndex) return
+    const [moved] = fromList.todos.splice(fromIndex, 1)
+    toList.todos.splice(toIndex, 0, moved)
   }
 
   const addTodo = (listId, text) => {
@@ -472,9 +486,10 @@ export function useTodoStorage(storage = localStorage) {
     return 0
   }
 
-  const displayTodos = computed(() =>
-    [...todos.value].map(toDisplayTodo).sort(sortByProgress)
-  )
+  const displayTodos = computed(() => {
+    const displayed = [...todos.value].map(toDisplayTodo)
+    return manualSort.value ? displayed : displayed.sort(sortByProgress)
+  })
 
   const shoppingTodos = computed(() => {
     if (!shoppingMode.value) return []
@@ -490,9 +505,10 @@ export function useTodoStorage(storage = localStorage) {
       const todos = shoppingMode.value
         ? list.todos.filter((t) => t.done)
         : list.todos
+      const displayed = [...todos].map(toDisplayTodo)
       return {
         ...list,
-        displayTodos: [...todos].map(toDisplayTodo).sort(sortByProgress),
+        displayTodos: manualSort.value ? displayed : displayed.sort(sortByProgress),
       }
     })
     return mapped
@@ -519,11 +535,17 @@ export function useTodoStorage(storage = localStorage) {
     shoppingMode.value = !shoppingMode.value
   }
 
+  const toggleManualSort = () => {
+    manualSort.value = !manualSort.value
+    try { localStorage.setItem(SORT_MODE_KEY, manualSort.value ? 'manual' : 'auto') } catch {}
+  }
+
   instance = {
     lists,
     activeListId,
     activeList,
     shoppingMode,
+    manualSort,
     confettiTrigger,
     displayTodos,
     displayLists,
@@ -533,6 +555,7 @@ export function useTodoStorage(storage = localStorage) {
     removeList,
     renameList,
     moveList,
+    moveTodo,
     setActiveList,
     addTodo,
     toggleTodo,
@@ -545,6 +568,7 @@ export function useTodoStorage(storage = localStorage) {
     canUndo,
     canRedo,
     toggleShoppingMode,
+    toggleManualSort,
     refreshNow,
   }
 
