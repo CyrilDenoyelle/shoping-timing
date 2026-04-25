@@ -2,6 +2,8 @@
 import { ref, nextTick, computed } from 'vue'
 import IconTrash from './icons/IconTrash.vue'
 import IconTrashOpen from './icons/IconTrashOpen.vue'
+import IconUndo from './icons/IconUndo.vue'
+import IconRedo from './icons/IconRedo.vue'
 import { UNITS, needsConversionModal, getBaseUnit, unitScale } from '../composables/useTodoStorage'
 import UnitConvertModal from './UnitConvertModal.vue'
 
@@ -22,9 +24,17 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  canUndo: {
+    type: Boolean,
+    default: false,
+  },
+  canRedo: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-const emit = defineEmits(['toggle', 'remove', 'rename', 'set-quantity', 'set-unit'])
+const emit = defineEmits(['toggle', 'remove', 'rename', 'set-quantity', 'set-unit', 'undo', 'redo'])
 
 const isEditing = ref(false)
 const editText = ref('')
@@ -250,6 +260,22 @@ const onRowClick = () => {
     </div>
 
     <div class="actions">
+      <button
+        v-if="canUndo"
+        class="act act-history"
+        @click.stop="emit('undo')"
+        aria-label="Annuler pour cet item"
+      >
+        <IconUndo />
+      </button>
+      <button
+        v-if="canRedo"
+        class="act act-history"
+        @click.stop="emit('redo')"
+        aria-label="Rétablir pour cet item"
+      >
+        <IconRedo />
+      </button>
       <button
         class="act act-danger"
         :class="{ 'act-confirm': confirmingDelete }"
@@ -605,6 +631,21 @@ const onRowClick = () => {
 
 .act-danger:hover {
   color: var(--danger);
+}
+
+.act-history {
+  opacity: 0.5;
+  transition: color 0.2s, opacity 0.2s;
+}
+
+.act-history :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+.act-history:hover {
+  opacity: 1;
+  color: var(--accent);
 }
 
 .act-confirm {

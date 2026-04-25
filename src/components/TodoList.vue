@@ -22,6 +22,10 @@ const {
   renameTodo,
   setQuantity,
   setUnit,
+  undoTodoAction,
+  redoTodoAction,
+  canUndoTodo,
+  canRedoTodo,
 } = useTodoStorage()
 
 const showNewList = ref(false)
@@ -220,11 +224,15 @@ const onTodoDragEnd = () => {
           :key="'s-' + todo.id"
           :todo="todo"
           :shopping-mode="true"
+          :can-undo="canUndoTodo(todo.id)"
+          :can-redo="canRedoTodo(todo.id)"
           @toggle="toggleTodo(todo.listId, todo.id)"
           @remove="removeTodo(todo.listId, todo.id)"
           @rename="(id, text) => renameTodo(todo.listId, id, text)"
           @set-quantity="(qty) => setQuantity(todo.listId, todo.id, qty)"
           @set-unit="(unit, factor, newQty) => setUnit(todo.listId, todo.id, unit, factor, newQty)"
+          @undo="undoTodoAction(todo.listId, todo.id)"
+          @redo="redoTodoAction(todo.listId, todo.id)"
         />
       </TransitionGroup>
     </section>
@@ -303,11 +311,15 @@ const onTodoDragEnd = () => {
             :compact="shoppingMode && todo.done"
             :shopping-mode="shoppingMode"
             :reorderable="manualSort"
+            :can-undo="canUndoTodo(todo.id)"
+            :can-redo="canRedoTodo(todo.id)"
             @toggle="toggleTodo(list.id, todo.id)"
             @remove="removeTodo(list.id, todo.id)"
             @rename="(id, text) => renameTodo(list.id, id, text)"
             @set-quantity="(qty) => setQuantity(list.id, todo.id, qty)"
             @set-unit="(unit, factor, newQty) => setUnit(list.id, todo.id, unit, factor, newQty)"
+            @undo="undoTodoAction(list.id, todo.id)"
+            @redo="redoTodoAction(list.id, todo.id)"
           />
         </div>
       </TransitionGroup>
