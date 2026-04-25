@@ -218,7 +218,7 @@ function generateId() {
 const SORT_MODE_KEY = 'shoping-timing-sort-mode'
 const UNDO_STORAGE_KEY = 'shoping-timing-undo'
 const REDO_STORAGE_KEY = 'shoping-timing-redo'
-const MAX_PERSISTED_ACTIONS = 5
+const MAX_PERSISTED_ACTIONS = 10
 
 function loadStack(key) {
   try {
