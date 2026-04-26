@@ -311,10 +311,11 @@ const chartOptions = computed(() => {
               const u = String(unit ?? '').trim()
               const qtyLabel = formatPurchaseQtyLabel(quantitySum, u)
               const showQtyBadge = quantitySum !== 1 || u.length > 0
-              const badge = showQtyBadge
-                ? `<span class="pst-tooltip__badge" aria-label="Quantité : ${escapeAttr(qtyLabel)}">${escapeHtml(qtyLabel)}</span>`
-                : '<span class="pst-tooltip__badge-spacer" aria-hidden="true"></span>'
-              return `<div class="pst-tooltip__row">${badge}<span class="pst-tooltip__label">${label}</span></div>`
+              if (showQtyBadge) {
+                const badge = `<span class="pst-tooltip__badge" aria-label="Quantité : ${escapeAttr(qtyLabel)}">${escapeHtml(qtyLabel)}</span>`
+                return `<div class="pst-tooltip__row">${badge}<span class="pst-tooltip__label">${label}</span></div>`
+              }
+              return `<div class="pst-tooltip__row"><span class="pst-tooltip__label">${label}</span></div>`
             })
             .join('')
 
@@ -616,12 +617,6 @@ watch(periodId, refreshNow)
   background: var(--pst-accent-soft);
   border-radius: 999px;
   white-space: nowrap;
-}
-
-[data-purchase-stats-tooltip] .pst-tooltip__badge-spacer {
-  flex-shrink: 0;
-  width: 2.25rem;
-  min-width: 2.25rem;
 }
 
 [data-purchase-stats-tooltip] .pst-tooltip__label {
