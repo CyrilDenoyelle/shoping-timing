@@ -10,6 +10,7 @@ import { useTodoStorage } from './composables/useTodoStorage'
 
 const {
   shoppingMode, manualSort, confettiTrigger,
+  uncheckedCount,
   canUndo, canRedo,
   toggleShoppingMode, toggleManualSort, refreshNow,
   undoLastAction, redoLastAction,
@@ -54,12 +55,13 @@ const {
       <IconSort />
     </button>
     <button
-      class="tool-btn"
+      class="tool-btn cart-btn"
       :class="{ active: shoppingMode }"
       aria-label="Mode courses"
       @click="toggleShoppingMode"
     >
       <IconCart />
+      <span v-if="uncheckedCount > 0 && !shoppingMode" class="cart-badge">{{ uncheckedCount }}</span>
     </button>
   </div>
   <main>
@@ -121,5 +123,20 @@ const {
   color: var(--accent);
   border-color: transparent;
   background: transparent;
+}
+
+.cart-btn {
+  position: relative;
+}
+
+.cart-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--accent);
+  opacity: 1;
+  pointer-events: none;
 }
 </style>

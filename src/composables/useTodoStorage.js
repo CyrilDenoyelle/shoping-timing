@@ -578,9 +578,11 @@ export function useTodoStorage(storage = localStorage) {
     )
   )
 
-  const hasAnyUnchecked = computed(() =>
-    lists.value.some((l) => l.todos.some((t) => !t.done))
+  const uncheckedCount = computed(() =>
+    lists.value.reduce((sum, l) => sum + l.todos.filter((t) => !t.done).length, 0)
   )
+
+  const hasAnyUnchecked = computed(() => uncheckedCount.value > 0)
 
   watch(hasAnyUnchecked, (value) => {
     if (!value && shoppingMode.value) {
@@ -605,6 +607,7 @@ export function useTodoStorage(storage = localStorage) {
     shoppingMode,
     manualSort,
     confettiTrigger,
+    uncheckedCount,
     displayTodos,
     displayLists,
     shoppingTodos,
