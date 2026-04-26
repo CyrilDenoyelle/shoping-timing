@@ -286,6 +286,7 @@ const onTodoDragEnd = () => {
         name="fade"
         tag="div"
         class="items"
+        :class="{ 'items--empty-drop': manualSort && !list.displayTodos.length }"
         @dragover="onListZoneDragOver(list.id, $event)"
         @dragleave="onListZoneDragLeave"
         @drop="onListZoneDrop(list.id, list.displayTodos.length, $event)"
@@ -443,6 +444,11 @@ const onTodoDragEnd = () => {
 
 .items {
   position: relative;
+}
+
+/* Liste vide : zone de drop avec hauteur, sinon le DnD n’a aucune cible */
+.items--empty-drop {
+  min-height: 1.375rem;
 }
 
 .fade-move {
