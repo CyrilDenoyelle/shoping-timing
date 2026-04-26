@@ -13,10 +13,61 @@ import {
 import {
   collectPurchaseEvents,
   buildTimelineSeries,
+  formatPurchaseQtyLabel,
   TIMELINE_PERIODS,
 } from '../utils/purchaseTimeline'
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
+
+const TOOLTIP_MARK = 'data-purchase-stats-tooltip'
+const TOOLTIP_HIDE_DELAY_MS = 150
+
+/** Dernier chart stats (pour la fermeture différée depuis le tooltip HTML) */
+let purchaseStatsTooltipLastChart = null
+let purchaseStatsTooltipHideTimer = null
+let purchaseStatsTooltipPointerInside = false
+
+function clearPurchaseStatsTooltipHideTimer() {
+  if (purchaseStatsTooltipHideTimer != null) {
+    clearTimeout(purchaseStatsTooltipHideTimer)
+    purchaseStatsTooltipHideTimer = null
+  }
+}
+
+function hidePurchaseStatsTooltipEl(el) {
+  if (!el) return
+  el.style.opacity = '0'
+  el.style.visibility = 'hidden'
+  el.style.pointerEvents = 'none'
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {import('chart.js').Chart | null} chart
+ */
+function scheduleHidePurchaseStatsTooltip(el, chart) {
+  clearPurchaseStatsTooltipHideTimer()
+  purchaseStatsTooltipHideTimer = setTimeout(() => {
+    purchaseStatsTooltipHideTimer = null
+    if (purchaseStatsTooltipPointerInside) return
+    if (chart?.tooltip && chart.tooltip.opacity !== 0) return
+    hidePurchaseStatsTooltipEl(el)
+  }, TOOLTIP_HIDE_DELAY_MS)
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function escapeAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+}
 
 const props = defineProps({
   lists: { type: Array, required: true },
@@ -24,6 +75,105 @@ const props = defineProps({
 
 const periodId = ref(TIMELINE_PERIODS[1].id)
 const nowMs = ref(Date.now())
+
+const TOOLTIP_OFFSET_X = 12
+const TOOLTIP_VIEWPORT_PAD = 8
+
+/**
+ * Point d’ancrage du tooltip en coordonnées viewport (préfère la barre active, pas caret animé).
+ * @param {import('chart.js').Chart} chart
+ * @param {import('chart.js').Tooltip} tooltip
+ */
+function getTooltipAnchorInViewport(chart, tooltip) {
+  const canvas = chart.canvas
+  const cr = canvas.getBoundingClientRect()
+  const item = tooltip.dataPoints?.[0]
+  const element = item?.element
+  if (element && typeof element.tooltipPosition === 'function') {
+    const p = element.tooltipPosition()
+    if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+      return { x: cr.left + p.x, y: cr.top + p.y }
+    }
+  }
+  const cx = tooltip.caretX
+  const cy = tooltip.caretY
+  if (Number.isFinite(cx) && Number.isFinite(cy)) {
+    return { x: cr.left + cx, y: cr.top + cy }
+  }
+  const ca = chart.chartArea
+  if (ca && Number.isFinite(ca.left)) {
+    return {
+      x: cr.left + (ca.left + ca.right) / 2,
+      y: cr.top + (ca.top + ca.bottom) / 2,
+    }
+  }
+  return { x: cr.left + cr.width / 2, y: cr.top + cr.height / 2 }
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} ax
+ * @param {number} ay
+ */
+function clampTooltipInViewport(el, ax, ay) {
+  const vv = window.visualViewport
+  const vLeft = vv?.offsetLeft ?? 0
+  const vTop = vv?.offsetTop ?? 0
+  const vW = vv?.width ?? window.innerWidth
+  const vH = vv?.height ?? window.innerHeight
+  const pad = TOOLTIP_VIEWPORT_PAD
+  const minX = vLeft + pad
+  const maxX = vLeft + vW - pad
+  const minY = vTop + pad
+  const maxY = vTop + vH - pad
+
+  const place = (left, top) => {
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+  }
+
+  let left = ax + TOOLTIP_OFFSET_X
+  let top = ay
+  el.style.marginLeft = '0'
+  el.style.marginTop = '0'
+  el.style.transform = 'translateY(-50%)'
+  place(left, top)
+
+  const adjust = () => {
+    let r = el.getBoundingClientRect()
+
+    if (r.right > maxX) {
+      left = ax - TOOLTIP_OFFSET_X - r.width
+      place(left, top)
+      r = el.getBoundingClientRect()
+    }
+    if (r.left < minX) {
+      left = minX
+      place(left, top)
+      r = el.getBoundingClientRect()
+    }
+    if (r.right > maxX) {
+      left = Math.max(minX, maxX - r.width)
+      place(left, top)
+      r = el.getBoundingClientRect()
+    }
+
+    if (r.top < minY) {
+      top += minY - r.top
+      place(left, top)
+      r = el.getBoundingClientRect()
+    }
+    if (r.bottom > maxY) {
+      top -= r.bottom - maxY
+      place(left, top)
+    }
+  }
+
+  requestAnimationFrame(() => {
+    adjust()
+    requestAnimationFrame(adjust)
+  })
+}
 
 function setPeriod(id) {
   periodId.value = id
@@ -82,7 +232,7 @@ const chartMinHeight = computed(() => {
 
 const chartOptions = computed(() => {
   const t = theme.value
-  const tooltipLinesPerBucket = series.value.tooltipLinesPerBucket ?? []
+  const tooltipRowsPerBucket = series.value.tooltipRowsPerBucket ?? []
   return {
     indexAxis: 'y',
     responsive: true,
@@ -105,32 +255,88 @@ const chartOptions = computed(() => {
     plugins: {
       legend: { display: false },
       tooltip: {
-        boxPadding: 6,
+        enabled: false,
         displayColors: false,
         mode: 'index',
         axis: 'y',
         intersect: false,
-        animation: { duration: 120 },
-        callbacks: {
-          title(items) {
-            const row = items[0]
-            if (!row) return ''
-            return row.label
-          },
-          label(item) {
-            const n = item.raw
-            if (n === 0) return 'Aucun achat'
-            return n === 1 ? '1 achat en tout' : `${n} achats en tout`
-          },
-          afterBody(items) {
-            const row = items[0]
-            if (!row) return []
-            const n = row.raw
-            if (n === 0) return []
-            const lines = tooltipLinesPerBucket[row.dataIndex] ?? []
-            if (!lines.length) return []
-            return ['', 'Détail :', ...lines.map((line) => `  ${line}`)]
-          },
+        animation: { duration: 0 },
+        external(context) {
+          let el = document.querySelector(`[${TOOLTIP_MARK}]`)
+          if (!el) {
+            el = document.createElement('div')
+            el.setAttribute(TOOLTIP_MARK, '')
+            el.setAttribute('role', 'tooltip')
+            document.body.appendChild(el)
+            el.addEventListener('mouseenter', () => {
+              purchaseStatsTooltipPointerInside = true
+              clearPurchaseStatsTooltipHideTimer()
+            })
+            el.addEventListener('mouseleave', () => {
+              purchaseStatsTooltipPointerInside = false
+              scheduleHidePurchaseStatsTooltip(el, purchaseStatsTooltipLastChart)
+            })
+          }
+
+          const { chart, tooltip } = context
+          purchaseStatsTooltipLastChart = chart
+
+          if (tooltip.opacity === 0) {
+            scheduleHidePurchaseStatsTooltip(el, chart)
+            return
+          }
+
+          const dp = tooltip.dataPoints?.[0]
+          if (!dp) {
+            scheduleHidePurchaseStatsTooltip(el, chart)
+            return
+          }
+
+          clearPurchaseStatsTooltipHideTimer()
+
+          const dataIndex = dp.dataIndex
+          const periodLabel = chart.data.labels[dataIndex] ?? ''
+          const n = Number(dp.raw) || 0
+          const detail = tooltipRowsPerBucket[dataIndex] ?? { items: [] }
+
+          const totalLine =
+            n === 0 ? 'Aucun achat' : n === 1 ? '1 achat en tout' : `${n} achats en tout`
+
+          const rowsHtml = detail.items
+            .map(({ quantitySum, unit, text, list }) => {
+              const label =
+                list.length > 0
+                  ? `${escapeHtml(text)}<span class="pst-tooltip__sep"> · </span>${escapeHtml(list)}`
+                  : escapeHtml(text)
+              const u = String(unit ?? '').trim()
+              const qtyLabel = formatPurchaseQtyLabel(quantitySum, u)
+              const showQtyBadge = quantitySum !== 1 || u.length > 0
+              const badge = showQtyBadge
+                ? `<span class="pst-tooltip__badge" aria-label="Quantité : ${escapeAttr(qtyLabel)}">${escapeHtml(qtyLabel)}</span>`
+                : '<span class="pst-tooltip__badge-spacer" aria-hidden="true"></span>'
+              return `<div class="pst-tooltip__row">${badge}<span class="pst-tooltip__label">${label}</span></div>`
+            })
+            .join('')
+
+          const detailSection =
+            n > 0 && detail.items.length > 0
+              ? `<div class="pst-tooltip__section"><div class="pst-tooltip__detail-hint">Détail</div><div class="pst-tooltip__rows">${rowsHtml}</div></div>`
+              : ''
+
+          el.innerHTML = `<div class="pst-tooltip" style="--pst-muted:${t.muted};--pst-text:${t.text};--pst-border:${t.border};--pst-accent:${t.accent};--pst-accent-soft:${t.accentSoft}">
+            <div class="pst-tooltip__title">${escapeHtml(periodLabel)}</div>
+            <div class="pst-tooltip__total">${escapeHtml(totalLine)}</div>
+            ${detailSection}
+          </div>`
+
+          el.style.opacity = '1'
+          el.style.visibility = 'visible'
+          el.style.position = 'fixed'
+          el.style.pointerEvents = 'auto'
+          el.style.zIndex = '10000'
+
+          const { x: ax, y: ay } = getTooltipAnchorInViewport(chart, tooltip)
+          clampTooltipInViewport(el, ax, ay)
         },
       },
     },
@@ -191,6 +397,10 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  clearPurchaseStatsTooltipHideTimer()
+  purchaseStatsTooltipLastChart = null
+  purchaseStatsTooltipPointerInside = false
+  document.querySelector(`[${TOOLTIP_MARK}]`)?.remove()
   try {
     window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', onThemeMedia)
   } catch {
@@ -203,10 +413,10 @@ watch(periodId, refreshNow)
 
 <template>
   <section class="purchase-stats" aria-labelledby="stats-title">
-    <h2 id="stats-title" class="stats-title">Achats dans le temps</h2>
+    <h2 id="stats-title" class="stats-title">Au fil de tes achats</h2>
 
     <p class="stats-hint">
-      Chaque case cochée avec une date de fin dans l’historique compte pour un achat.
+      Quand tu coches des produits sur tes listes, chaque coche compte comme un achat et alimente ce graphique.
       <span v-if="series.total > 0" class="stats-total">{{ series.total }} sur la période</span>
     </p>
 
@@ -224,7 +434,7 @@ watch(periodId, refreshNow)
     </div>
 
     <div v-if="series.total === 0" class="stats-empty">
-      Aucun achat sur cette période. Coche des produits pour enregistrer des achats dans l’historique.
+      Pas encore d’achat sur cette période. Coche des articles sur tes listes pour voir la courbe se remplir.
     </div>
     <div v-else class="chart-wrap">
       <div class="chart-inner" :style="{ minHeight: `${chartMinHeight}px` }">
@@ -325,5 +535,103 @@ watch(periodId, refreshNow)
   padding: 0.75rem 0;
   line-height: 1.5;
   flex-shrink: 0;
+}
+</style>
+
+<!-- Tooltip monté sur body : styles globaux (hors scope du SFC) -->
+<style>
+[data-purchase-stats-tooltip] .pst-tooltip {
+  min-width: 10rem;
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: 0.55rem 0.65rem 0.6rem;
+  border: 1px solid var(--pst-border);
+  border-radius: 8px;
+  background: var(--color-background, #fff);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--pst-text);
+  pointer-events: auto;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__title {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--color-heading, var(--pst-text));
+  margin-bottom: 0.2rem;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__total {
+  color: var(--pst-accent);
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__section {
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--pst-border);
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__detail-hint {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pst-muted);
+  margin-bottom: 0.35rem;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__rows {
+  max-height: min(42vh, 14rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding-right: 0.15rem;
+  margin-right: -0.15rem;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: 0.28rem;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__rows .pst-tooltip__row:first-child {
+  margin-top: 0;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 7.5rem;
+  padding: 0.06rem 0.4rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--pst-accent);
+  background: var(--pst-accent-soft);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__badge-spacer {
+  flex-shrink: 0;
+  width: 2.25rem;
+  min-width: 2.25rem;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__label {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__sep {
+  color: var(--pst-muted);
+  font-weight: 400;
 }
 </style>

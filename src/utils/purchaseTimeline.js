@@ -1,6 +1,35 @@
 const DAY = 86_400_000
 
-/** @typedef {{ at: number, listName: string, text: string }} PurchaseEvent */
+/** @typedef {{ at: number, listName: string, text: string, quantity: number, unit: string }} PurchaseEvent */
+
+/**
+ * Quantité enregistrée sur le timing au moment du passage « acheté » (pas le nombre de coches).
+ * @param {unknown} t
+ */
+function timingQuantity(t) {
+  const q = t?.quantity
+  const n = q != null && !Number.isNaN(Number(q)) ? Number(q) : 1
+  return Math.max(0.1, n)
+}
+
+/**
+ * @param {unknown} t
+ */
+function timingUnit(t) {
+  return String(t?.unit ?? '').trim()
+}
+
+/**
+ * Libellé cohérent avec l’affichage des todos (ex. 2 kg, 1,5 L).
+ * @param {number} quantity
+ * @param {string} unit
+ */
+export function formatPurchaseQtyLabel(quantity, unit) {
+  const u = String(unit ?? '').trim()
+  const q = quantity
+  const numStr = Number.isInteger(q) ? String(q) : String(Number(q.toFixed(1)))
+  return u ? `${numStr} ${u}` : numStr
+}
 
 /**
  * @param {unknown[]} lists
@@ -18,6 +47,8 @@ export function collectPurchaseEvents(lists) {
           at: t.end,
           listName: name,
           text: todo.text ?? '',
+          quantity: timingQuantity(t),
+          unit: timingUnit(t),
         })
       }
     }
@@ -73,36 +104,35 @@ export const TIMELINE_PERIODS = [
   { id: 'all', label: 'Tout', days: null, bucket: 'auto' },
 ]
 
-/**
- * Lignes de détail pour le tooltip (produit + liste, regroupé par doublons).
- * @param {PurchaseEvent[]} bucketEvents
- * @returns {string[]}
- */
-const MAX_TOOLTIP_DETAIL_LINES = 14
+/** @typedef {{ quantitySum: number, unit: string, text: string, list: string }} TooltipDetailItem */
+/** @typedef {{ items: TooltipDetailItem[] }} TooltipDetailBucket */
 
-function breakdownBucketForTooltip(bucketEvents) {
-  if (!bucketEvents.length) return []
+/**
+ * Détail tooltip : regroupe par produit + liste + unité, somme les quantités achetées.
+ * @param {PurchaseEvent[]} bucketEvents
+ * @returns {TooltipDetailBucket}
+ */
+function breakdownBucketForTooltipRows(bucketEvents) {
+  if (!bucketEvents.length) return { items: [] }
   /** @type {Map<string, number>} */
   const m = new Map()
   for (const e of bucketEvents) {
     const text = (e.text || 'Sans titre').trim()
     const list = (e.listName || '').trim()
-    const key = `${text}\u0000${list}`
-    m.set(key, (m.get(key) ?? 0) + 1)
+    const unit = String(e.unit ?? '').trim()
+    const key = `${text}\u0000${list}\u0000${unit}`
+    m.set(key, (m.get(key) ?? 0) + e.quantity)
   }
-  const rows = [...m.entries()].map(([key, count]) => {
-    const [text, list] = key.split('\u0000')
-    const label = list ? `${text} · ${list}` : text
-    return { count, label }
+  const rows = [...m.entries()].map(([key, quantitySum]) => {
+    const [text, list, unit] = key.split('\u0000')
+    return { quantitySum, unit: unit ?? '', text, list }
   })
-  rows.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'fr'))
-  const lines = rows.map(({ count, label }) => (count > 1 ? `${count}× ${label}` : label))
-  if (lines.length <= MAX_TOOLTIP_DETAIL_LINES) return lines
-  const rest = lines.length - MAX_TOOLTIP_DETAIL_LINES
-  return [
-    ...lines.slice(0, MAX_TOOLTIP_DETAIL_LINES),
-    `… et ${rest} autre${rest > 1 ? 's' : ''}`,
-  ]
+  rows.sort((a, b) => {
+    const la = a.list ? `${a.text} · ${a.list}` : a.text
+    const lb = b.list ? `${b.text} · ${b.list}` : b.text
+    return b.quantitySum - a.quantitySum || la.localeCompare(lb, 'fr')
+  })
+  return { items: rows }
 }
 
 /**
@@ -124,7 +154,7 @@ export function buildTimelineSeries(events, nowMs, periodId) {
         counts: [],
         total: 0,
         bucketMode: 'day',
-        tooltipLinesPerBucket: [],
+        tooltipRowsPerBucket: [],
       }
     }
     fromMs = events[0].at
@@ -159,8 +189,8 @@ export function buildTimelineSeries(events, nowMs, periodId) {
 
   const labels = []
   const counts = []
-  /** @type {string[][]} */
-  const tooltipLinesPerBucket = []
+  /** @type {TooltipDetailBucket[]} */
+  const tooltipRowsPerBucket = []
   const fmtDay = (ts) =>
     new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
   const fmtWeek = (ts) => {
@@ -176,8 +206,8 @@ export function buildTimelineSeries(events, nowMs, periodId) {
     labels.push(bucketMode === 'week' ? fmtWeek(b) : fmtDay(b))
     counts.push(countMap.get(b) ?? 0)
     const evts = eventsByBucket.get(b) ?? []
-    tooltipLinesPerBucket.push(breakdownBucketForTooltip(evts))
+    tooltipRowsPerBucket.push(breakdownBucketForTooltipRows(evts))
   }
 
-  return { labels, counts, total, bucketMode, tooltipLinesPerBucket }
+  return { labels, counts, total, bucketMode, tooltipRowsPerBucket }
 }
