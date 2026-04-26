@@ -1,7 +1,5 @@
 @import './base.css';
 
 #app {
-  max-width: 480px;
-  margin: 0 auto;
-  padding: 3rem 1.25rem 4rem;
+  min-height: 100dvh;
 }
