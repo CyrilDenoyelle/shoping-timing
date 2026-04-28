@@ -69,6 +69,53 @@ function escapeAttr(s) {
     .replace(/"/g, '&quot;')
 }
 
+const TOOLTIP_UNLISTED_LABEL = 'Sans liste'
+
+/**
+ * Regroupe les lignes du tooltip par liste, trie les groupes et les lignes.
+ * @param {Array<{ quantitySum: number, unit: string, text: string, list: string }>} items
+ * @returns {Array<{ listName: string, items: typeof items }>}
+ */
+function groupTooltipDetailByList(items) {
+  if (!items?.length) return []
+  /** @type {Map<string, typeof items>} */
+  const m = new Map()
+  for (const it of items) {
+    const key = String(it.list ?? '').trim()
+    const label = key.length > 0 ? key : TOOLTIP_UNLISTED_LABEL
+    if (!m.has(label)) m.set(label, [])
+    m.get(label).push(it)
+  }
+  for (const arr of m.values()) {
+    arr.sort(
+      (a, b) =>
+        b.quantitySum - a.quantitySum || a.text.localeCompare(b.text, 'fr', { sensitivity: 'base' })
+    )
+  }
+  return [...m.entries()]
+    .sort(([a], [b]) => {
+      if (a === TOOLTIP_UNLISTED_LABEL) return 1
+      if (b === TOOLTIP_UNLISTED_LABEL) return -1
+      return a.localeCompare(b, 'fr', { sensitivity: 'base' })
+    })
+    .map(([listName, groupItems]) => ({ listName, items: groupItems }))
+}
+
+/**
+ * @param {{ quantitySum: number, unit: string, text: string }} row — sans suffixe liste (affichée au-dessus)
+ */
+function tooltipRowHtml(row) {
+  const label = escapeHtml(row.text || 'Sans titre')
+  const u = String(row.unit ?? '').trim()
+  const qtyLabel = formatPurchaseQtyLabel(row.quantitySum, u)
+  const showQtyBadge = row.quantitySum !== 1 || u.length > 0
+  if (showQtyBadge) {
+    const badge = `<span class="pst-tooltip__badge" aria-label="Quantité : ${escapeAttr(qtyLabel)}">${escapeHtml(qtyLabel)}</span>`
+    return `<div class="pst-tooltip__row">${badge}<span class="pst-tooltip__label">${label}</span></div>`
+  }
+  return `<div class="pst-tooltip__row"><span class="pst-tooltip__label">${label}</span></div>`
+}
+
 const props = defineProps({
   lists: { type: Array, required: true },
 })
@@ -302,20 +349,16 @@ const chartOptions = computed(() => {
           const totalLine =
             n === 0 ? 'Aucun achat' : n === 1 ? '1 achat en tout' : `${n} achats en tout`
 
-          const rowsHtml = detail.items
-            .map(({ quantitySum, unit, text, list }) => {
-              const label =
-                list.length > 0
-                  ? `${escapeHtml(text)}<span class="pst-tooltip__sep"> · </span>${escapeHtml(list)}`
-                  : escapeHtml(text)
-              const u = String(unit ?? '').trim()
-              const qtyLabel = formatPurchaseQtyLabel(quantitySum, u)
-              const showQtyBadge = quantitySum !== 1 || u.length > 0
-              if (showQtyBadge) {
-                const badge = `<span class="pst-tooltip__badge" aria-label="Quantité : ${escapeAttr(qtyLabel)}">${escapeHtml(qtyLabel)}</span>`
-                return `<div class="pst-tooltip__row">${badge}<span class="pst-tooltip__label">${label}</span></div>`
-              }
-              return `<div class="pst-tooltip__row"><span class="pst-tooltip__label">${label}</span></div>`
+          const groups = groupTooltipDetailByList(detail.items)
+          const hideGroupTitles =
+            groups.length === 1 && groups[0].listName === TOOLTIP_UNLISTED_LABEL
+
+          const rowsHtml = groups
+            .map(({ listName, items: groupItems }) => {
+              const inner = groupItems.map((row) => tooltipRowHtml(row)).join('')
+              if (hideGroupTitles) return inner
+              const title = `<div class="pst-tooltip__group-h">${escapeHtml(listName)}</div>`
+              return `<div class="pst-tooltip__group">${title}<div class="pst-tooltip__group-rows">${inner}</div></div>`
             })
             .join('')
 
@@ -575,9 +618,10 @@ watch(periodId, refreshNow)
 }
 
 [data-purchase-stats-tooltip] .pst-tooltip__detail-hint {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.07em;
   color: var(--pst-muted);
   margin-bottom: 0.35rem;
 }
@@ -592,6 +636,38 @@ watch(periodId, refreshNow)
   margin-right: -0.15rem;
 }
 
+[data-purchase-stats-tooltip] .pst-tooltip__group {
+  margin-top: 0.4rem;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__group:first-child {
+  margin-top: 0;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__group-h {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+  color: var(--color-heading, var(--pst-text));
+  margin-bottom: 0.28rem;
+  padding: 0.15rem 0 0.15rem 0.5rem;
+  border-left: 2px solid var(--pst-accent);
+  border-radius: 0 2px 2px 0;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__group-rows {
+  padding-left: 0.65rem;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__group-rows .pst-tooltip__row {
+  margin-top: 0.28rem;
+}
+
+[data-purchase-stats-tooltip] .pst-tooltip__group-rows .pst-tooltip__row:first-child {
+  margin-top: 0;
+}
+
 [data-purchase-stats-tooltip] .pst-tooltip__row {
   display: flex;
   align-items: baseline;
@@ -599,7 +675,7 @@ watch(periodId, refreshNow)
   margin-top: 0.28rem;
 }
 
-[data-purchase-stats-tooltip] .pst-tooltip__rows .pst-tooltip__row:first-child {
+[data-purchase-stats-tooltip] .pst-tooltip__rows > .pst-tooltip__row:first-child {
   margin-top: 0;
 }
 
@@ -625,8 +701,4 @@ watch(periodId, refreshNow)
   word-break: break-word;
 }
 
-[data-purchase-stats-tooltip] .pst-tooltip__sep {
-  color: var(--pst-muted);
-  font-weight: 400;
-}
 </style>
