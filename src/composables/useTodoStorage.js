@@ -218,7 +218,7 @@ function generateId() {
 const SORT_MODE_KEY = 'shoping-timing-sort-mode'
 const UNDO_STORAGE_KEY = 'shoping-timing-undo'
 const REDO_STORAGE_KEY = 'shoping-timing-redo'
-const MAX_PERSISTED_ACTIONS = 10
+const MAX_PERSISTED_ACTIONS = 100
 
 function loadStack(key) {
   try {
@@ -265,6 +265,36 @@ export function useTodoStorage(storage = localStorage) {
   watch(undoStack, () => saveStack(UNDO_STORAGE_KEY, undoStack))
   watch(redoStack, () => saveStack(REDO_STORAGE_KEY, redoStack))
 
+  /**
+   * Vues mémoire : mêmes objets entrée que dans undoStack / redoStack (références partagées).
+   * L’ordre dans chaque tableau suit l’ordre chronologique global des entrées pertinentes pour ce todo.
+   * Une seule pile physique reste nécessaire pour que « annuler / rétablir global » et par-item
+   * partagent la même liste d’entrées redo (redo toujours sur la même structure reactive).
+   */
+  const todoUndoChains = computed(() => {
+    /** @type {Record<string, unknown[]>} */
+    const m = {}
+    for (const e of undoStack) {
+      const k = String(e.todoId)
+      ;(m[k] ||= []).push(e)
+    }
+    return m
+  })
+
+  const todoRedoChains = computed(() => {
+    /** @type {Record<string, unknown[]>} */
+    const m = {}
+    for (const e of redoStack) {
+      const k = String(e.todoId)
+      ;(m[k] ||= []).push(e)
+    }
+    return m
+  })
+
+  const undoDepthForTodo = (todoId) => (todoUndoChains.value[String(todoId)] ?? []).length
+
+  const redoDepthForTodo = (todoId) => (todoRedoChains.value[String(todoId)] ?? []).length
+
   const activeList = computed(() =>
     lists.value.find((l) => l.id === activeListId.value)
   )
@@ -287,7 +317,8 @@ export function useTodoStorage(storage = localStorage) {
   const removeList = (id) => {
     const idx = lists.value.findIndex((l) => l.id === id)
     if (idx === -1) return
-    lists.value.splice(idx, 1)
+    const [removed] = lists.value.splice(idx, 1)
+    for (const t of removed.todos ?? []) pruneHistoryStacksForTodo(t.id)
     if (activeListId.value === id) {
       activeListId.value = lists.value[0]?.id ?? null
     }
@@ -315,11 +346,15 @@ export function useTodoStorage(storage = localStorage) {
     if (fromListId === (toListId ?? fromListId) && fromIndex === toIndex) return
     const [moved] = fromList.todos.splice(fromIndex, 1)
     toList.todos.splice(toIndex, 0, moved)
+    if (fromList !== toList) {
+      syncHistoryStacksListIdsForTodo(moved.id, toList.id)
+    }
   }
 
   const addTodo = (listId, text) => {
     const list = findListById(listId)
     if (!list) return
+    // id unique dans toute l’app (undo/redo dépend de cette invariante)
     list.todos.push({
       id: nextTodoId++,
       text,
@@ -335,6 +370,39 @@ export function useTodoStorage(storage = localStorage) {
   const findTodo = (listId, id) => {
     const list = findListById(listId)
     return list?.todos.find((t) => t.id === id)
+  }
+
+  /**
+   * Undo/redo reposent sur l’unicité globale des `todo.id` (voir `nextTodoId`).
+   * On ne résout pas un todo via `entry.listId` : après un déplacement entre listes, seul `todoId` est fiable ;
+   * `listId` dans l’entrée est une dénormalisation mise à jour sur `moveTodo`.
+   */
+  const findTodoByStableIdForHistory = (todoId) => {
+    for (const l of lists.value) {
+      const t = l.todos.find((x) => x.id === todoId)
+      if (t) return t
+    }
+    return null
+  }
+
+  /** Après déplacement entre listes, aligner les entrées persistées avec la liste réelle du todo. */
+  const syncHistoryStacksListIdsForTodo = (todoId, listId) => {
+    for (const e of undoStack) {
+      if (e.todoId === todoId) e.listId = listId
+    }
+    for (const e of redoStack) {
+      if (e.todoId === todoId) e.listId = listId
+    }
+  }
+
+  /** Suppression définitive : retirer l’historique lié au todo pour ne pas désynchroniser les piles. */
+  const pruneHistoryStacksForTodo = (todoId) => {
+    for (let i = undoStack.length - 1; i >= 0; i--) {
+      if (undoStack[i].todoId === todoId) undoStack.splice(i, 1)
+    }
+    for (let i = redoStack.length - 1; i >= 0; i--) {
+      if (redoStack[i].todoId === todoId) redoStack.splice(i, 1)
+    }
   }
 
   const toggleTodo = (listId, id) => {
@@ -377,6 +445,7 @@ export function useTodoStorage(storage = localStorage) {
     const list = findListById(listId)
     if (!list) return
     list.todos = list.todos.filter((t) => t.id !== id)
+    pruneHistoryStacksForTodo(id)
   }
 
   const renameTodo = (listId, id, text) => {
@@ -472,9 +541,13 @@ export function useTodoStorage(storage = localStorage) {
 
   const undoLastAction = () => {
     while (undoStack.length > 0) {
-      const entry = undoStack.pop()
-      const todo = findTodo(entry.listId, entry.todoId)
-      if (!todo) continue
+      const entry = undoStack[undoStack.length - 1]
+      const todo = findTodoByStableIdForHistory(entry.todoId)
+      if (!todo) {
+        undoStack.pop()
+        continue
+      }
+      undoStack.pop()
       applyUndo(entry, todo)
       redoStack.push(entry)
       return
@@ -483,41 +556,48 @@ export function useTodoStorage(storage = localStorage) {
 
   const redoLastAction = () => {
     while (redoStack.length > 0) {
-      const entry = redoStack.pop()
-      const todo = findTodo(entry.listId, entry.todoId)
-      if (!todo) continue
+      const entry = redoStack[redoStack.length - 1]
+      const todo = findTodoByStableIdForHistory(entry.todoId)
+      if (!todo) {
+        redoStack.pop()
+        continue
+      }
+      redoStack.pop()
       applyRedo(entry, todo)
       undoStack.push(entry)
       return
     }
   }
 
-  const undoTodoAction = (listId, todoId) => {
-    for (let i = undoStack.length - 1; i >= 0; i--) {
-      if (undoStack[i].todoId !== todoId) continue
-      const [entry] = undoStack.splice(i, 1)
-      const todo = findTodo(entry.listId, entry.todoId)
-      if (!todo) return
-      applyUndo(entry, todo)
-      redoStack.push(entry)
-      return
-    }
+  const undoTodoAction = (_listId, todoId) => {
+    const chain = todoUndoChains.value[String(todoId)]
+    const entry = chain?.[chain.length - 1]
+    if (!entry) return
+    const i = undoStack.lastIndexOf(entry)
+    if (i === -1) return
+    undoStack.splice(i, 1)
+    const todo = findTodoByStableIdForHistory(entry.todoId)
+    if (!todo) return
+    applyUndo(entry, todo)
+    redoStack.push(entry)
   }
 
-  const redoTodoAction = (listId, todoId) => {
-    for (let i = redoStack.length - 1; i >= 0; i--) {
-      if (redoStack[i].todoId !== todoId) continue
-      const [entry] = redoStack.splice(i, 1)
-      const todo = findTodo(entry.listId, entry.todoId)
-      if (!todo) return
-      applyRedo(entry, todo)
-      undoStack.push(entry)
-      return
-    }
+  const redoTodoAction = (_listId, todoId) => {
+    const chain = todoRedoChains.value[String(todoId)]
+    const entry = chain?.[chain.length - 1]
+    if (!entry) return
+    const i = redoStack.lastIndexOf(entry)
+    if (i === -1) return
+    redoStack.splice(i, 1)
+    const todo = findTodoByStableIdForHistory(entry.todoId)
+    if (!todo) return
+    applyRedo(entry, todo)
+    undoStack.push(entry)
   }
 
-  const canUndoTodo = (todoId) => undoStack.some((e) => e.todoId === todoId)
-  const canRedoTodo = (todoId) => redoStack.some((e) => e.todoId === todoId)
+  const canUndoTodo = (todoId) => undoDepthForTodo(todoId) > 0
+
+  const canRedoTodo = (todoId) => redoDepthForTodo(todoId) > 0
 
   const canUndo = computed(() => undoStack.length > 0)
   const canRedo = computed(() => redoStack.length > 0)
@@ -632,6 +712,10 @@ export function useTodoStorage(storage = localStorage) {
     canRedo,
     canUndoTodo,
     canRedoTodo,
+    todoUndoChains,
+    todoRedoChains,
+    undoDepthForTodo,
+    redoDepthForTodo,
     toggleShoppingMode,
     toggleManualSort,
     refreshNow,
