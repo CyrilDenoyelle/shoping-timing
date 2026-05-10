@@ -216,6 +216,7 @@ function generateId() {
 }
 
 const SORT_MODE_KEY = 'shoping-timing-sort-mode'
+const SHOPPING_MODE_KEY = 'shoping-timing-shopping-mode'
 const UNDO_STORAGE_KEY = 'shoping-timing-undo'
 const REDO_STORAGE_KEY = 'shoping-timing-redo'
 const MAX_PERSISTED_ACTIONS = 100
@@ -238,7 +239,16 @@ function saveStack(key, stack) {
 }
 
 // Shared singleton state
-const shoppingMode = ref(false)
+function readShoppingModeFromStorage() {
+  try {
+    const v = localStorage.getItem(SHOPPING_MODE_KEY)
+    return v === '1' || v === 'true'
+  } catch {
+    return false
+  }
+}
+
+const shoppingMode = ref(readShoppingModeFromStorage())
 const manualSort = ref((() => {
   try { return localStorage.getItem(SORT_MODE_KEY) === 'manual' } catch { return false }
 })())
@@ -264,6 +274,12 @@ export function useTodoStorage(storage = localStorage) {
 
   watch(undoStack, () => saveStack(UNDO_STORAGE_KEY, undoStack))
   watch(redoStack, () => saveStack(REDO_STORAGE_KEY, redoStack))
+
+  watch(shoppingMode, () => {
+    try {
+      localStorage.setItem(SHOPPING_MODE_KEY, shoppingMode.value ? '1' : '0')
+    } catch {}
+  })
 
   /**
    * Vues mémoire : mêmes objets entrée que dans undoStack / redoStack (références partagées).
@@ -664,12 +680,16 @@ export function useTodoStorage(storage = localStorage) {
 
   const hasAnyUnchecked = computed(() => uncheckedCount.value > 0)
 
-  watch(hasAnyUnchecked, (value) => {
-    if (!value && shoppingMode.value) {
-      shoppingMode.value = false
-      confettiTrigger.value++
-    }
-  })
+  watch(
+    hasAnyUnchecked,
+    (value, oldValue) => {
+      if (!value && shoppingMode.value) {
+        shoppingMode.value = false
+        if (oldValue !== undefined) confettiTrigger.value++
+      }
+    },
+    { immediate: true },
+  )
 
   const toggleShoppingMode = () => {
     shoppingMode.value = !shoppingMode.value
