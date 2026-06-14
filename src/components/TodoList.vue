@@ -109,12 +109,14 @@ const onDragEnd = () => {
   dragOverIndex.value = null
 }
 
-const scrollToTodo = (listId, todoId) => {
-  const el = document.querySelector(`[data-todo-id="${listId}-${todoId}"]`)
+const scrollToTodo = async (listId, todoId) => {
+  await nextTick()
+  const key = `${listId}-${todoId}`
+  const el = document.querySelector(`[data-todo-id="${key}"]`)
   if (!el) return
   el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   el.classList.add('highlight-flash')
-  setTimeout(() => el.classList.remove('highlight-flash'), 2500)
+  setTimeout(() => el.classList.remove('highlight-flash'), 5000)
 }
 
 const draggedTodoListId = ref(null)
@@ -219,21 +221,25 @@ const onTodoDragEnd = () => {
   <div class="lists">
     <section v-if="shoppingMode && shoppingTodos.length" class="section shopping-section">
       <TransitionGroup name="fade" tag="div" class="items">
-        <TodoItem
+        <div
           v-for="todo in shoppingTodos"
           :key="'s-' + todo.id"
-          :todo="todo"
-          :shopping-mode="true"
-          :can-undo="canUndoTodo(todo.id)"
-          :can-redo="canRedoTodo(todo.id)"
-          @toggle="toggleTodo(todo.listId, todo.id)"
-          @remove="removeTodo(todo.listId, todo.id)"
-          @rename="(id, text) => renameTodo(todo.listId, id, text)"
-          @set-quantity="(qty) => setQuantity(todo.listId, todo.id, qty)"
-          @set-unit="(unit, factor, newQty) => setUnit(todo.listId, todo.id, unit, factor, newQty)"
-          @undo="undoTodoAction(todo.listId, todo.id)"
-          @redo="redoTodoAction(todo.listId, todo.id)"
-        />
+          :data-todo-id="todo.listId + '-' + todo.id"
+        >
+          <TodoItem
+            :todo="todo"
+            :shopping-mode="true"
+            :can-undo="canUndoTodo(todo.id)"
+            :can-redo="canRedoTodo(todo.id)"
+            @toggle="toggleTodo(todo.listId, todo.id)"
+            @remove="removeTodo(todo.listId, todo.id)"
+            @rename="(id, text) => renameTodo(todo.listId, id, text)"
+            @set-quantity="(qty) => setQuantity(todo.listId, todo.id, qty)"
+            @set-unit="(unit, factor, newQty) => setUnit(todo.listId, todo.id, unit, factor, newQty)"
+            @undo="undoTodoAction(todo.listId, todo.id)"
+            @redo="redoTodoAction(todo.listId, todo.id)"
+          />
+        </div>
       </TransitionGroup>
     </section>
 
@@ -530,7 +536,7 @@ const onTodoDragEnd = () => {
 }
 
 :deep(.highlight-flash) {
-  animation: highlight-flash 1.2s ease-out;
+  animation: highlight-flash 2.4s ease-out;
   border-radius: 6px;
 }
 

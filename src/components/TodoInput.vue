@@ -155,7 +155,12 @@ const highlight = (text, query) => {
         @focus="onFocus"
       />
       <Transition name="dropdown">
-        <div v-if="visibleSuggestions.length" class="dropdown">
+        <div
+          v-if="visibleSuggestions.length"
+          class="dropdown"
+          @mousedown.prevent
+          @touchstart.prevent
+        >
           <div
             v-for="(s, i) in visibleSuggestions"
             :key="s.listId + '-' + s.todoId"
@@ -167,7 +172,13 @@ const highlight = (text, query) => {
               @mousedown.prevent="selectSuggestion(s)"
             >
               <span v-html="highlight(s.text, searchQuery.trim())" />
-              <span class="dropdown-list-name">{{ s.listName }}</span>
+            </button>
+            <button
+              class="dropdown-list-name"
+              :aria-label="`Aller à ${s.text} dans ${s.listName}`"
+              @mousedown.prevent="goToItem(s)"
+            >
+              {{ s.listName }}
             </button>
             <button
               class="goto-btn"
@@ -296,11 +307,27 @@ const highlight = (text, query) => {
 
 .dropdown-list-name {
   margin-left: auto;
+  padding: 0.35rem 0.5rem;
   font-size: 0.65rem;
+  font-family: inherit;
   color: var(--color-text-muted);
   opacity: 0.6;
   white-space: nowrap;
   flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.dropdown-row:hover .dropdown-list-name,
+.dropdown-row.active .dropdown-list-name {
+  opacity: 0.85;
+}
+
+.dropdown-list-name:hover {
+  opacity: 1 !important;
+  color: var(--accent);
 }
 
 .goto-btn {
@@ -316,14 +343,14 @@ const highlight = (text, query) => {
   border: none;
   border-radius: 3px;
   color: var(--color-text-muted);
-  opacity: 0;
+  opacity: 0.35;
   cursor: pointer;
   transition: opacity 0.15s, color 0.15s;
 }
 
 .dropdown-row:hover .goto-btn,
 .dropdown-row.active .goto-btn {
-  opacity: 0.5;
+  opacity: 0.65;
 }
 
 .goto-btn:hover {
