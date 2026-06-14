@@ -6,6 +6,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  placeholder: {
+    type: String,
+    default: 'Ajouter une tâche…',
+  },
 })
 
 const input = ref('')
@@ -146,7 +150,7 @@ const highlight = (text, query) => {
       <input
         v-model="input"
         type="text"
-        placeholder="Ajouter une tâche…"
+        :placeholder="placeholder"
         class="input"
         @input="onInput"
         @compositionupdate="onCompositionUpdate"

@@ -2,10 +2,12 @@
 import { ref, nextTick } from 'vue'
 import TodoItem from './TodoItem.vue'
 import TodoInput from './TodoInput.vue'
+import QuickAddTodo from './QuickAddTodo.vue'
 import IconTrash from './icons/IconTrash.vue'
 import { useTodoStorage } from '../composables/useTodoStorage'
 
 const {
+  lists,
   displayLists,
   shoppingMode,
   manualSort,
@@ -219,6 +221,13 @@ const onTodoDragEnd = () => {
 
 <template>
   <div class="lists">
+    <QuickAddTodo
+      :lists="lists"
+      :suggestions="allTodoTexts"
+      @add="(listId, text) => addTodo(listId, text)"
+      @navigate="scrollToTodo"
+    />
+
     <section v-if="shoppingMode && shoppingTodos.length" class="section shopping-section">
       <TransitionGroup name="fade" tag="div" class="items">
         <div
