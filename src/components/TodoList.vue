@@ -11,6 +11,7 @@ const {
   displayLists,
   shoppingMode,
   manualSort,
+  shoppingManualSort,
   shoppingTodos,
   allTodoTexts,
   addList,
@@ -18,6 +19,7 @@ const {
   renameList,
   moveList,
   moveTodo,
+  moveShoppingTodo,
   addTodo,
   toggleTodo,
   removeTodo,
@@ -217,6 +219,56 @@ const resetTodoDrag = () => {
 const onTodoDragEnd = () => {
   resetTodoDrag()
 }
+
+const draggedShoppingIndex = ref(null)
+const dragOverShoppingKey = ref(null)
+const dragOverShoppingHalf = ref(null)
+
+const onShoppingDragStart = (index, e) => {
+  if (!shoppingManualSort.value) return
+  e.stopPropagation()
+  draggedShoppingIndex.value = index
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', `shopping:${index}`)
+}
+
+const onShoppingDragOver = (index, e) => {
+  if (!shoppingManualSort.value || draggedShoppingIndex.value === null) return
+  e.preventDefault()
+  e.stopPropagation()
+  e.dataTransfer.dropEffect = 'move'
+  const rect = e.currentTarget.getBoundingClientRect()
+  dragOverShoppingHalf.value = (e.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
+  dragOverShoppingKey.value = index
+}
+
+const onShoppingDragLeave = (e) => {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    dragOverShoppingKey.value = null
+    dragOverShoppingHalf.value = null
+  }
+}
+
+const onShoppingDrop = (index, e) => {
+  e.stopPropagation()
+  if (draggedShoppingIndex.value === null) return
+  const fromIdx = draggedShoppingIndex.value
+  const half = dragOverShoppingHalf.value ?? 'before'
+  let toIdx = half === 'before' ? index : index + 1
+  if (fromIdx < toIdx) toIdx--
+  if (fromIdx !== toIdx) moveShoppingTodo(fromIdx, toIdx)
+  resetShoppingDrag()
+}
+
+const resetShoppingDrag = () => {
+  draggedShoppingIndex.value = null
+  dragOverShoppingKey.value = null
+  dragOverShoppingHalf.value = null
+}
+
+const onShoppingDragEnd = () => {
+  resetShoppingDrag()
+}
 </script>
 
 <template>
@@ -231,13 +283,25 @@ const onTodoDragEnd = () => {
     <section v-if="shoppingMode && shoppingTodos.length" class="section shopping-section">
       <TransitionGroup name="fade" tag="div" class="items">
         <div
-          v-for="todo in shoppingTodos"
+          v-for="(todo, si) in shoppingTodos"
           :key="'s-' + todo.id"
           :data-todo-id="todo.listId + '-' + todo.id"
+          :draggable="shoppingManualSort"
+          :class="{
+            'todo-dragging': shoppingManualSort && draggedShoppingIndex === si,
+            'todo-drag-before': shoppingManualSort && dragOverShoppingKey === si && dragOverShoppingHalf === 'before' && draggedShoppingIndex !== si,
+            'todo-drag-after': shoppingManualSort && dragOverShoppingKey === si && dragOverShoppingHalf === 'after' && draggedShoppingIndex !== si,
+          }"
+          @dragstart="onShoppingDragStart(si, $event)"
+          @dragover="onShoppingDragOver(si, $event)"
+          @dragleave="onShoppingDragLeave($event)"
+          @drop="onShoppingDrop(si, $event)"
+          @dragend="onShoppingDragEnd"
         >
           <TodoItem
             :todo="todo"
             :shopping-mode="true"
+            :reorderable="shoppingManualSort"
             :can-undo="canUndoTodo(todo.id)"
             :can-redo="canRedoTodo(todo.id)"
             @toggle="toggleTodo(todo.listId, todo.id)"

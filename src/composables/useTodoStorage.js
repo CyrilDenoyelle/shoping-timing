@@ -217,6 +217,8 @@ function generateId() {
 
 const SORT_MODE_KEY = 'shoping-timing-sort-mode'
 const SHOPPING_MODE_KEY = 'shoping-timing-shopping-mode'
+const SHOPPING_ORDER_KEY = 'shoping-timing-shopping-order'
+const SHOPPING_MANUAL_SORT_KEY = 'shoping-timing-shopping-manual-sort'
 const UNDO_STORAGE_KEY = 'shoping-timing-undo'
 const REDO_STORAGE_KEY = 'shoping-timing-redo'
 const MAX_PERSISTED_ACTIONS = 100
@@ -252,6 +254,32 @@ const shoppingMode = ref(readShoppingModeFromStorage())
 const manualSort = ref((() => {
   try { return localStorage.getItem(SORT_MODE_KEY) === 'manual' } catch { return false }
 })())
+const shoppingManualSort = ref((() => {
+  try { return localStorage.getItem(SHOPPING_MANUAL_SORT_KEY) === '1' } catch { return false }
+})())
+const shoppingOrder = ref((() => {
+  try {
+    const raw = localStorage.getItem(SHOPPING_ORDER_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch {}
+  return []
+})())
+
+const todoShoppingKey = (listId, todoId) => `${listId}:${todoId}`
+
+function parseShoppingKey(key) {
+  const i = key.lastIndexOf(':')
+  return { listId: key.slice(0, i), todoId: Number(key.slice(i + 1)) }
+}
+
+function saveShoppingOrder(order) {
+  try {
+    localStorage.setItem(SHOPPING_ORDER_KEY, JSON.stringify(order))
+  } catch {}
+}
 const confettiTrigger = ref(0)
 const undoStack = reactive(loadStack(UNDO_STORAGE_KEY))
 const redoStack = reactive(loadStack(REDO_STORAGE_KEY))
@@ -280,6 +308,41 @@ export function useTodoStorage(storage = localStorage) {
       localStorage.setItem(SHOPPING_MODE_KEY, shoppingMode.value ? '1' : '0')
     } catch {}
   })
+
+  watch(shoppingManualSort, () => {
+    try {
+      localStorage.setItem(SHOPPING_MANUAL_SORT_KEY, shoppingManualSort.value ? '1' : '0')
+    } catch {}
+  })
+
+  watch(shoppingOrder, (order) => saveShoppingOrder(order), { deep: true })
+
+  const syncShoppingOrder = () => {
+    const allKeys = []
+    for (const list of lists.value) {
+      for (const t of list.todos) {
+        allKeys.push(todoShoppingKey(list.id, t.id))
+      }
+    }
+    const allSet = new Set(allKeys)
+    const preserved = shoppingOrder.value.filter((k) => allSet.has(k))
+    const preservedSet = new Set(preserved)
+    const appended = allKeys.filter((k) => !preservedSet.has(k))
+    const next = [...preserved, ...appended]
+    if (next.length !== shoppingOrder.value.length || next.some((k, i) => k !== shoppingOrder.value[i])) {
+      shoppingOrder.value = next
+    }
+  }
+
+  watch(lists, syncShoppingOrder, { deep: true, immediate: true })
+
+  const findListById = (listId) => lists.value.find((l) => l.id === listId)
+
+  const isUncheckedShoppingKey = (key) => {
+    const { listId, todoId } = parseShoppingKey(key)
+    const todo = findListById(listId)?.todos.find((t) => t.id === todoId)
+    return todo != null && !todo.done
+  }
 
   /**
    * Vues mémoire : mêmes objets entrée que dans undoStack / redoStack (références partagées).
@@ -316,8 +379,6 @@ export function useTodoStorage(storage = localStorage) {
   )
 
   const todos = computed(() => activeList.value?.todos ?? [])
-
-  const findListById = (listId) => lists.value.find((l) => l.id === listId)
 
   const addList = (name) => {
     const trimmed = (name || 'Nouvelle liste').trim()
@@ -364,7 +425,26 @@ export function useTodoStorage(storage = localStorage) {
     toList.todos.splice(toIndex, 0, moved)
     if (fromList !== toList) {
       syncHistoryStacksListIdsForTodo(moved.id, toList.id)
+      const oldKey = todoShoppingKey(fromListId, moved.id)
+      const newKey = todoShoppingKey(toList.id, moved.id)
+      const idx = shoppingOrder.value.indexOf(oldKey)
+      if (idx !== -1) shoppingOrder.value[idx] = newKey
     }
+  }
+
+  const moveShoppingTodo = (fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return
+    syncShoppingOrder()
+    const order = [...shoppingOrder.value]
+    const uncheckedKeys = order.filter(isUncheckedShoppingKey)
+    if (
+      fromIndex < 0 || fromIndex >= uncheckedKeys.length ||
+      toIndex < 0 || toIndex >= uncheckedKeys.length
+    ) return
+    const [movedKey] = uncheckedKeys.splice(fromIndex, 1)
+    uncheckedKeys.splice(toIndex, 0, movedKey)
+    let u = 0
+    shoppingOrder.value = order.map((k) => (isUncheckedShoppingKey(k) ? uncheckedKeys[u++] : k))
   }
 
   const addTodo = (listId, text) => {
@@ -647,11 +727,25 @@ export function useTodoStorage(storage = localStorage) {
 
   const shoppingTodos = computed(() => {
     if (!shoppingMode.value) return []
-    return lists.value.flatMap((list) =>
-      list.todos
-        .filter((t) => !t.done)
-        .map((t) => ({ ...toDisplayTodo(t), listId: list.id, listName: list.name }))
-    )
+    const byKey = new Map()
+    for (const list of lists.value) {
+      for (const t of list.todos) {
+        if (!t.done) {
+          const key = todoShoppingKey(list.id, t.id)
+          byKey.set(key, { ...toDisplayTodo(t), listId: list.id, listName: list.name })
+        }
+      }
+    }
+    const ordered = []
+    for (const key of shoppingOrder.value) {
+      const item = byKey.get(key)
+      if (item) {
+        ordered.push(item)
+        byKey.delete(key)
+      }
+    }
+    for (const item of byKey.values()) ordered.push(item)
+    return ordered
   })
 
   const displayLists = computed(() => {
@@ -700,12 +794,18 @@ export function useTodoStorage(storage = localStorage) {
     try { localStorage.setItem(SORT_MODE_KEY, manualSort.value ? 'manual' : 'auto') } catch {}
   }
 
+  const toggleShoppingManualSort = () => {
+    shoppingManualSort.value = !shoppingManualSort.value
+    if (shoppingManualSort.value) syncShoppingOrder()
+  }
+
   instance = {
     lists,
     activeListId,
     activeList,
     shoppingMode,
     manualSort,
+    shoppingManualSort,
     confettiTrigger,
     uncheckedCount,
     displayTodos,
@@ -717,6 +817,7 @@ export function useTodoStorage(storage = localStorage) {
     renameList,
     moveList,
     moveTodo,
+    moveShoppingTodo,
     setActiveList,
     addTodo,
     toggleTodo,
@@ -738,6 +839,7 @@ export function useTodoStorage(storage = localStorage) {
     redoDepthForTodo,
     toggleShoppingMode,
     toggleManualSort,
+    toggleShoppingManualSort,
     refreshNow,
   }
 

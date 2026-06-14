@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from 'vue'
 import TodoList from '../components/TodoList.vue'
 import ConfettiCelebration from '../components/ConfettiCelebration.vue'
 import IconCart from '../components/icons/IconCart.vue'
@@ -10,12 +11,21 @@ import IconStats from '../components/icons/IconStats.vue'
 import { useTodoStorage } from '../composables/useTodoStorage'
 
 const {
-  shoppingMode, manualSort, confettiTrigger,
+  shoppingMode, manualSort, shoppingManualSort, confettiTrigger,
   uncheckedCount,
   canUndo, canRedo,
-  toggleShoppingMode, toggleManualSort, refreshNow,
+  toggleShoppingMode, toggleManualSort, toggleShoppingManualSort, refreshNow,
   undoLastAction, redoLastAction,
 } = useTodoStorage()
+
+const sortActive = computed(() =>
+  shoppingMode.value ? shoppingManualSort.value : manualSort.value
+)
+
+const onSortClick = () => {
+  if (shoppingMode.value) toggleShoppingManualSort()
+  else toggleManualSort()
+}
 </script>
 
 <template>
@@ -50,9 +60,9 @@ const {
     </button>
     <button
       class="tool-btn"
-      :class="{ active: manualSort }"
-      aria-label="Tri manuel"
-      @click="toggleManualSort"
+      :class="{ active: sortActive }"
+      :aria-label="shoppingMode ? 'Ordre manuel des courses' : 'Tri manuel'"
+      @click="onSortClick"
     >
       <IconSort />
     </button>
