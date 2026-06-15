@@ -1,4 +1,4 @@
-import { STORAGE_KEYS } from '@/constants/storageKeys.js'
+import { STORAGE_KEYS } from '@/services/storage/keys.js'
 import { updateTodoAverage } from '@/utils/todo/todoIntervals.js'
 
 function migrateTiming(t) {
@@ -29,19 +29,14 @@ function migrateList(list) {
   return list
 }
 
-export function loadListsFromStorage(storage = localStorage) {
+export function loadListsFromStorage(storage) {
   try {
-    const raw = storage.getItem(STORAGE_KEYS.LISTS)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) return parsed.map(migrateList)
-    }
-    const legacyRaw = storage.getItem(STORAGE_KEYS.LEGACY_TODOS)
-    if (legacyRaw) {
-      const legacyTodos = JSON.parse(legacyRaw)
-      if (Array.isArray(legacyTodos)) {
-        return [{ id: 'default', name: 'Ma liste', todos: legacyTodos.map(migrateTodo) }]
-      }
+    const parsed = storage.getJson(STORAGE_KEYS.LISTS)
+    if (Array.isArray(parsed)) return parsed.map(migrateList)
+
+    const legacyTodos = storage.getJson(STORAGE_KEYS.LEGACY_TODOS)
+    if (Array.isArray(legacyTodos)) {
+      return [{ id: 'default', name: 'Ma liste', todos: legacyTodos.map(migrateTodo) }]
     }
     return null
   } catch {
@@ -49,11 +44,9 @@ export function loadListsFromStorage(storage = localStorage) {
   }
 }
 
-export function saveListsToStorage(lists, storage = localStorage) {
-  try {
-    storage.setItem(STORAGE_KEYS.LISTS, JSON.stringify(lists))
-  } catch (e) {
-    console.warn('Impossible de sauvegarder les listes:', e)
+export function saveListsToStorage(lists, storage) {
+  if (!storage.setJson(STORAGE_KEYS.LISTS, lists)) {
+    console.warn('Impossible de sauvegarder les listes')
   }
 }
 

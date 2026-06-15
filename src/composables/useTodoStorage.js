@@ -1,5 +1,5 @@
 import { ref, reactive, watch, computed } from 'vue'
-import { STORAGE_KEYS } from '@/constants/storageKeys.js'
+import { STORAGE_KEYS, defaultStorage } from '@/services/storage'
 import { defaultLists } from '@/utils/todo/demoData.js'
 import { getBaseUnit, unitScale } from '@/utils/todo/units.js'
 import { updateTodoAverage, formatMs, getProgress } from '@/utils/todo/todoIntervals.js'
@@ -19,48 +19,32 @@ import {
   pruneHistoryStacksForTodo,
 } from '@/services/todo/history.js'
 
-function readShoppingModeFromStorage() {
-  try {
-    const v = localStorage.getItem(STORAGE_KEYS.SHOPPING_MODE)
-    return v === '1' || v === 'true'
-  } catch {
-    return false
-  }
+function readShoppingModeFromStorage(storage = defaultStorage) {
+  const v = storage.getString(STORAGE_KEYS.SHOPPING_MODE)
+  return v === '1' || v === 'true'
 }
 
-function saveShoppingOrder(order) {
-  try {
-    localStorage.setItem(STORAGE_KEYS.SHOPPING_ORDER, JSON.stringify(order))
-  } catch {}
+function saveShoppingOrder(order, storage = defaultStorage) {
+  storage.setJson(STORAGE_KEYS.SHOPPING_ORDER, order)
 }
 
 const shoppingMode = ref(readShoppingModeFromStorage())
-const manualSort = ref((() => {
-  try { return localStorage.getItem(STORAGE_KEYS.SORT_MODE) === 'manual' } catch { return false }
-})())
-const shoppingManualSort = ref((() => {
-  try { return localStorage.getItem(STORAGE_KEYS.SHOPPING_MANUAL_SORT) === '1' } catch { return false }
-})())
+const manualSort = ref(defaultStorage.getString(STORAGE_KEYS.SORT_MODE) === 'manual')
+const shoppingManualSort = ref(defaultStorage.getString(STORAGE_KEYS.SHOPPING_MANUAL_SORT) === '1')
 const shoppingOrder = ref((() => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.SHOPPING_ORDER)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) return parsed
-    }
-  } catch {}
-  return []
+  const parsed = defaultStorage.getJson(STORAGE_KEYS.SHOPPING_ORDER, [])
+  return Array.isArray(parsed) ? parsed : []
 })())
 
 const confettiTrigger = ref(0)
-const { undo: initialUndo, redo: initialRedo } = createHistoryStacks()
+const { undo: initialUndo, redo: initialRedo } = createHistoryStacks(defaultStorage)
 const undoStack = reactive(initialUndo)
 const redoStack = reactive(initialRedo)
 let instance = null
 let flushListsPersist = null
 let pageHideRegistered = false
 
-export function useTodoStorage(storage = localStorage) {
+export function useTodoStorage(storage = defaultStorage) {
   if (instance) return instance
 
   const stored = loadListsFromStorage(storage)
@@ -106,18 +90,14 @@ export function useTodoStorage(storage = localStorage) {
   watch(redoStack, () => saveStack(STORAGE_KEYS.REDO, redoStack, storage))
 
   watch(shoppingMode, () => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SHOPPING_MODE, shoppingMode.value ? '1' : '0')
-    } catch {}
+    storage.setString(STORAGE_KEYS.SHOPPING_MODE, shoppingMode.value ? '1' : '0')
   })
 
   watch(shoppingManualSort, () => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SHOPPING_MANUAL_SORT, shoppingManualSort.value ? '1' : '0')
-    } catch {}
+    storage.setString(STORAGE_KEYS.SHOPPING_MANUAL_SORT, shoppingManualSort.value ? '1' : '0')
   })
 
-  watch(shoppingOrder, (order) => saveShoppingOrder(order), { deep: true })
+  watch(shoppingOrder, (order) => saveShoppingOrder(order, storage), { deep: true })
 
   const findListById = (listId) => lists.value.find((l) => l.id === listId)
 
@@ -480,7 +460,7 @@ export function useTodoStorage(storage = localStorage) {
 
   const toggleManualSort = () => {
     manualSort.value = !manualSort.value
-    try { localStorage.setItem(STORAGE_KEYS.SORT_MODE, manualSort.value ? 'manual' : 'auto') } catch {}
+    storage.setString(STORAGE_KEYS.SORT_MODE, manualSort.value ? 'manual' : 'auto')
   }
 
   const toggleShoppingManualSort = () => {

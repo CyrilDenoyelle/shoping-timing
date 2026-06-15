@@ -1,4 +1,4 @@
-/** Clés localStorage centralisées pour éviter les collisions et faciliter la maintenance. */
+/** Identifiants de clés — indépendants du backend (localStorage, API, etc.). */
 export const STORAGE_KEYS = {
   LISTS: 'shoping-timing-lists',
   LEGACY_TODOS: 'shoping-timing-todos',

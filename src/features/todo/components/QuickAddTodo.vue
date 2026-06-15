@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import TodoInput from './TodoInput.vue'
-import { STORAGE_KEYS } from '@/constants/storageKeys.js'
+import { STORAGE_KEYS, defaultStorage } from '@/services/storage'
 
 const props = defineProps({
   lists: { type: Array, required: true },
@@ -10,13 +10,8 @@ const props = defineProps({
 
 const emit = defineEmits(['add', 'navigate'])
 
-const readStoredListId = () => {
-  try {
-    return localStorage.getItem(STORAGE_KEYS.QUICK_ADD_LIST)
-  } catch {
-    return null
-  }
-}
+const readStoredListId = () =>
+  defaultStorage.getString(STORAGE_KEYS.QUICK_ADD_LIST)
 
 const resolveListId = (lists) => {
   const stored = readStoredListId()
@@ -40,9 +35,7 @@ watch(
 
 watch(selectedListId, (id) => {
   if (!id) return
-  try {
-    localStorage.setItem(STORAGE_KEYS.QUICK_ADD_LIST, id)
-  } catch {}
+  defaultStorage.setString(STORAGE_KEYS.QUICK_ADD_LIST, id)
 })
 
 const selectedListName = computed(

@@ -1,24 +1,16 @@
-import { STORAGE_KEYS, MAX_PERSISTED_ACTIONS } from '@/constants/storageKeys.js'
+import { STORAGE_KEYS, MAX_PERSISTED_ACTIONS } from '@/services/storage/keys.js'
 import { updateTodoAverage } from '@/utils/todo/todoIntervals.js'
 
-export function loadStack(key, storage = localStorage) {
-  try {
-    const raw = storage.getItem(key)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) return parsed.slice(-MAX_PERSISTED_ACTIONS)
-    }
-  } catch {}
-  return []
+export function loadStack(key, storage) {
+  const parsed = storage.getJson(key, [])
+  return Array.isArray(parsed) ? parsed.slice(-MAX_PERSISTED_ACTIONS) : []
 }
 
-export function saveStack(key, stack, storage = localStorage) {
-  try {
-    storage.setItem(key, JSON.stringify(stack.slice(-MAX_PERSISTED_ACTIONS)))
-  } catch {}
+export function saveStack(key, stack, storage) {
+  storage.setJson(key, stack.slice(-MAX_PERSISTED_ACTIONS))
 }
 
-export function createHistoryStacks(storage = localStorage) {
+export function createHistoryStacks(storage) {
   return {
     undo: loadStack(STORAGE_KEYS.UNDO, storage),
     redo: loadStack(STORAGE_KEYS.REDO, storage),
