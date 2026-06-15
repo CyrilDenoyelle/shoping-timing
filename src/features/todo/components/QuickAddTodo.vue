@@ -1,8 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import TodoInput from './TodoInput.vue'
-
-const LAST_LIST_KEY = 'shoping-timing-quick-add-list'
+import { STORAGE_KEYS } from '@/constants/storageKeys.js'
 
 const props = defineProps({
   lists: { type: Array, required: true },
@@ -13,7 +12,7 @@ const emit = defineEmits(['add', 'navigate'])
 
 const readStoredListId = () => {
   try {
-    return localStorage.getItem(LAST_LIST_KEY)
+    return localStorage.getItem(STORAGE_KEYS.QUICK_ADD_LIST)
   } catch {
     return null
   }
@@ -42,7 +41,7 @@ watch(
 watch(selectedListId, (id) => {
   if (!id) return
   try {
-    localStorage.setItem(LAST_LIST_KEY, id)
+    localStorage.setItem(STORAGE_KEYS.QUICK_ADD_LIST, id)
   } catch {}
 })
 

@@ -1,5 +1,5 @@
-import { convertQuantity } from './units.js'
-import { DAY } from './time.js'
+import { convertQuantity } from '@/utils/todo/units.js'
+import { DAY } from '@/utils/time.js'
 
 export function computeWeightedIntervalMs(todo) {
   const timings = todo.timings ?? []

@@ -5,7 +5,7 @@ import {
   updateTodoAverage,
   formatMs,
   getProgress,
-} from '@/utils/todoIntervals.js'
+} from '@/utils/todo/todoIntervals.js'
 
 describe('todoIntervals', () => {
   describe('formatMs', () => {

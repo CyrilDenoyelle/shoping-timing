@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
-import { formatMs } from '../utils/todoIntervals.js'
+import { formatMs } from '@/utils/todo/todoIntervals.js'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },

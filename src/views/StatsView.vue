@@ -1,8 +1,8 @@
 <script setup>
 import { onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import PurchaseStatsContent from '../components/PurchaseStatsContent.vue'
-import { useTodoStorage } from '../composables/useTodoStorage'
+import PurchaseStatsContent from '@/features/stats/components/PurchaseStatsContent.vue'
+import { useTodoStorage } from '@/composables/useTodoStorage'
 
 const router = useRouter()
 const { lists } = useTodoStorage()

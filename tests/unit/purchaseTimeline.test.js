@@ -3,7 +3,7 @@ import {
   formatPurchaseQtyLabel,
   collectPurchaseEvents,
   buildTimelineSeries,
-} from '@/utils/purchaseTimeline.js'
+} from '@/utils/stats/purchaseTimeline.js'
 
 describe('purchaseTimeline', () => {
   describe('formatPurchaseQtyLabel', () => {

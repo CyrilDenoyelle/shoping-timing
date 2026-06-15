@@ -1,4 +1,4 @@
-import { DAY } from './time.js'
+import { DAY } from '@/utils/time.js'
 
 const NOW = Date.now()
 

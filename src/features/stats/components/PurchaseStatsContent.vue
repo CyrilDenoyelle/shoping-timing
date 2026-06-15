@@ -15,7 +15,7 @@ import {
   buildTimelineSeries,
   formatPurchaseQtyLabel,
   TIMELINE_PERIODS,
-} from '../utils/purchaseTimeline'
+} from '@/utils/stats/purchaseTimeline'
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
 

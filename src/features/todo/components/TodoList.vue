@@ -3,8 +3,8 @@ import { ref, nextTick } from 'vue'
 import TodoItem from './TodoItem.vue'
 import TodoInput from './TodoInput.vue'
 import QuickAddTodo from './QuickAddTodo.vue'
-import IconTrash from './icons/IconTrash.vue'
-import { useTodoStorage } from '../composables/useTodoStorage'
+import IconTrash from '@/components/ui/icons/IconTrash.vue'
+import { useTodoStorage } from '@/composables/useTodoStorage'
 
 const {
   lists,

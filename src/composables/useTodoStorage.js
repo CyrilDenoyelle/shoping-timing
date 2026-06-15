@@ -1,117 +1,49 @@
 import { ref, reactive, watch, computed } from 'vue'
-import { defaultLists } from '../utils/demoData.js'
-import { getBaseUnit, unitScale } from '../utils/units.js'
-import { updateTodoAverage, formatMs, getProgress } from '../utils/todoIntervals.js'
-import { debounce } from '../utils/debounce.js'
+import { STORAGE_KEYS } from '@/constants/storageKeys.js'
+import { defaultLists } from '@/utils/todo/demoData.js'
+import { getBaseUnit, unitScale } from '@/utils/todo/units.js'
+import { updateTodoAverage, formatMs, getProgress } from '@/utils/todo/todoIntervals.js'
+import { todoShoppingKey, parseShoppingKey } from '@/utils/todo/shoppingKeys.js'
+import { debounce } from '@/utils/debounce.js'
+import {
+  loadListsFromStorage,
+  saveListsToStorage,
+  generateId,
+} from '@/services/todo/persistence.js'
+import {
+  createHistoryStacks,
+  saveStack,
+  applyUndo,
+  applyRedo,
+  syncHistoryStacksListIdsForTodo,
+  pruneHistoryStacksForTodo,
+} from '@/services/todo/history.js'
 
-const STORAGE_KEY = 'shoping-timing-lists'
-const LEGACY_STORAGE_KEY = 'shoping-timing-todos'
-
-function migrateTiming(t) {
-  if (Array.isArray(t)) {
-    const obj = { start: t[0] }
-    if (t[1] != null) obj.end = t[1]
-    obj.quantity ??= 1
-    obj.unit ??= ''
-    return obj
-  }
-  t.quantity ??= 1
-  t.unit ??= ''
-  return t
-}
-
-function migrateTodo(todo) {
-  todo.timings = (todo.timings ?? []).map(migrateTiming)
-  if (todo.quantity == null) todo.quantity = 1
-  if (todo.unit == null) todo.unit = ''
-  if (todo.conversions == null) todo.conversions = {}
-  updateTodoAverage(todo)
-  return todo
-}
-
-function migrateList(list) {
-  if (!Array.isArray(list.todos)) list.todos = []
-  list.todos = list.todos.map(migrateTodo)
-  return list
-}
-
-function loadFromStorage(storage = localStorage) {
-  try {
-    const raw = storage.getItem(STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) return parsed.map(migrateList)
-    }
-    const legacyRaw = storage.getItem(LEGACY_STORAGE_KEY)
-    if (legacyRaw) {
-      const legacyTodos = JSON.parse(legacyRaw)
-      if (Array.isArray(legacyTodos)) {
-        return [{ id: 'default', name: 'Ma liste', todos: legacyTodos.map(migrateTodo) }]
-      }
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-function saveToStorage(lists, storage = localStorage) {
-  try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(lists))
-  } catch (e) {
-    console.warn('Impossible de sauvegarder les listes:', e)
-  }
-}
-
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2)
-}
-
-const SORT_MODE_KEY = 'shoping-timing-sort-mode'
-const SHOPPING_MODE_KEY = 'shoping-timing-shopping-mode'
-const SHOPPING_ORDER_KEY = 'shoping-timing-shopping-order'
-const SHOPPING_MANUAL_SORT_KEY = 'shoping-timing-shopping-manual-sort'
-const UNDO_STORAGE_KEY = 'shoping-timing-undo'
-const REDO_STORAGE_KEY = 'shoping-timing-redo'
-const MAX_PERSISTED_ACTIONS = 100
-
-function loadStack(key) {
-  try {
-    const raw = localStorage.getItem(key)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) return parsed.slice(-MAX_PERSISTED_ACTIONS)
-    }
-  } catch {}
-  return []
-}
-
-function saveStack(key, stack) {
-  try {
-    localStorage.setItem(key, JSON.stringify(stack.slice(-MAX_PERSISTED_ACTIONS)))
-  } catch {}
-}
-
-// Shared singleton state
 function readShoppingModeFromStorage() {
   try {
-    const v = localStorage.getItem(SHOPPING_MODE_KEY)
+    const v = localStorage.getItem(STORAGE_KEYS.SHOPPING_MODE)
     return v === '1' || v === 'true'
   } catch {
     return false
   }
 }
 
+function saveShoppingOrder(order) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.SHOPPING_ORDER, JSON.stringify(order))
+  } catch {}
+}
+
 const shoppingMode = ref(readShoppingModeFromStorage())
 const manualSort = ref((() => {
-  try { return localStorage.getItem(SORT_MODE_KEY) === 'manual' } catch { return false }
+  try { return localStorage.getItem(STORAGE_KEYS.SORT_MODE) === 'manual' } catch { return false }
 })())
 const shoppingManualSort = ref((() => {
-  try { return localStorage.getItem(SHOPPING_MANUAL_SORT_KEY) === '1' } catch { return false }
+  try { return localStorage.getItem(STORAGE_KEYS.SHOPPING_MANUAL_SORT) === '1' } catch { return false }
 })())
 const shoppingOrder = ref((() => {
   try {
-    const raw = localStorage.getItem(SHOPPING_ORDER_KEY)
+    const raw = localStorage.getItem(STORAGE_KEYS.SHOPPING_ORDER)
     if (raw) {
       const parsed = JSON.parse(raw)
       if (Array.isArray(parsed)) return parsed
@@ -120,21 +52,10 @@ const shoppingOrder = ref((() => {
   return []
 })())
 
-const todoShoppingKey = (listId, todoId) => `${listId}:${todoId}`
-
-function parseShoppingKey(key) {
-  const i = key.lastIndexOf(':')
-  return { listId: key.slice(0, i), todoId: Number(key.slice(i + 1)) }
-}
-
-function saveShoppingOrder(order) {
-  try {
-    localStorage.setItem(SHOPPING_ORDER_KEY, JSON.stringify(order))
-  } catch {}
-}
 const confettiTrigger = ref(0)
-const undoStack = reactive(loadStack(UNDO_STORAGE_KEY))
-const redoStack = reactive(loadStack(REDO_STORAGE_KEY))
+const { undo: initialUndo, redo: initialRedo } = createHistoryStacks()
+const undoStack = reactive(initialUndo)
+const redoStack = reactive(initialRedo)
 let instance = null
 let flushListsPersist = null
 let pageHideRegistered = false
@@ -142,7 +63,7 @@ let pageHideRegistered = false
 export function useTodoStorage(storage = localStorage) {
   if (instance) return instance
 
-  const stored = loadFromStorage(storage)
+  const stored = loadListsFromStorage(storage)
   const lists = ref(stored ?? defaultLists)
 
   let nextTodoId = Math.max(0, ...lists.value.flatMap((l) => l.todos.map((t) => t.id))) + 1
@@ -164,7 +85,7 @@ export function useTodoStorage(storage = localStorage) {
     }
   }
 
-  const persistLists = debounce((newLists) => saveToStorage(newLists, storage), 300)
+  const persistLists = debounce((newLists) => saveListsToStorage(newLists, storage), 300)
 
   flushListsPersist = () => persistLists.flush()
   if (!pageHideRegistered) {
@@ -181,18 +102,18 @@ export function useTodoStorage(storage = localStorage) {
     { deep: true, immediate: true },
   )
 
-  watch(undoStack, () => saveStack(UNDO_STORAGE_KEY, undoStack))
-  watch(redoStack, () => saveStack(REDO_STORAGE_KEY, redoStack))
+  watch(undoStack, () => saveStack(STORAGE_KEYS.UNDO, undoStack, storage))
+  watch(redoStack, () => saveStack(STORAGE_KEYS.REDO, redoStack, storage))
 
   watch(shoppingMode, () => {
     try {
-      localStorage.setItem(SHOPPING_MODE_KEY, shoppingMode.value ? '1' : '0')
+      localStorage.setItem(STORAGE_KEYS.SHOPPING_MODE, shoppingMode.value ? '1' : '0')
     } catch {}
   })
 
   watch(shoppingManualSort, () => {
     try {
-      localStorage.setItem(SHOPPING_MANUAL_SORT_KEY, shoppingManualSort.value ? '1' : '0')
+      localStorage.setItem(STORAGE_KEYS.SHOPPING_MANUAL_SORT, shoppingManualSort.value ? '1' : '0')
     } catch {}
   })
 
@@ -206,12 +127,6 @@ export function useTodoStorage(storage = localStorage) {
     return todo != null && !todo.done
   }
 
-  /**
-   * Vues mémoire : mêmes objets entrée que dans undoStack / redoStack (références partagées).
-   * L’ordre dans chaque tableau suit l’ordre chronologique global des entrées pertinentes pour ce todo.
-   * Une seule pile physique reste nécessaire pour que « annuler / rétablir global » et par-item
-   * partagent la même liste d’entrées redo (redo toujours sur la même structure reactive).
-   */
   const todoUndoChains = computed(() => {
     /** @type {Record<string, unknown[]>} */
     const m = {}
@@ -238,19 +153,18 @@ export function useTodoStorage(storage = localStorage) {
 
   const addList = (name) => {
     const trimmed = (name || 'Nouvelle liste').trim()
-    const newList = {
+    lists.value.push({
       id: generateId(),
       name: trimmed,
       todos: [],
-    }
-    lists.value.push(newList)
+    })
   }
 
   const removeList = (id) => {
     const idx = lists.value.findIndex((l) => l.id === id)
     if (idx === -1) return
     const [removed] = lists.value.splice(idx, 1)
-    for (const t of removed.todos ?? []) pruneHistoryStacksForTodo(t.id)
+    for (const t of removed.todos ?? []) pruneHistoryStacksForTodo(undoStack, redoStack, t.id)
   }
 
   const renameList = (id, name) => {
@@ -272,7 +186,7 @@ export function useTodoStorage(storage = localStorage) {
     const [moved] = fromList.todos.splice(fromIndex, 1)
     toList.todos.splice(toIndex, 0, moved)
     if (fromList !== toList) {
-      syncHistoryStacksListIdsForTodo(moved.id, toList.id)
+      syncHistoryStacksListIdsForTodo(undoStack, redoStack, moved.id, toList.id)
       const oldKey = todoShoppingKey(fromListId, moved.id)
       const newKey = todoShoppingKey(toList.id, moved.id)
       const idx = shoppingOrder.value.indexOf(oldKey)
@@ -298,7 +212,6 @@ export function useTodoStorage(storage = localStorage) {
   const addTodo = (listId, text) => {
     const list = findListById(listId)
     if (!list) return
-    // id unique dans toute l’app (undo/redo dépend de cette invariante)
     list.todos.push({
       id: nextTodoId++,
       text,
@@ -316,37 +229,12 @@ export function useTodoStorage(storage = localStorage) {
     return list?.todos.find((t) => t.id === id)
   }
 
-  /**
-   * Undo/redo reposent sur l’unicité globale des `todo.id` (voir `nextTodoId`).
-   * On ne résout pas un todo via `entry.listId` : après un déplacement entre listes, seul `todoId` est fiable ;
-   * `listId` dans l’entrée est une dénormalisation mise à jour sur `moveTodo`.
-   */
   const findTodoByStableIdForHistory = (todoId) => {
     for (const l of lists.value) {
       const t = l.todos.find((x) => x.id === todoId)
       if (t) return t
     }
     return null
-  }
-
-  /** Après déplacement entre listes, aligner les entrées persistées avec la liste réelle du todo. */
-  const syncHistoryStacksListIdsForTodo = (todoId, listId) => {
-    for (const e of undoStack) {
-      if (e.todoId === todoId) e.listId = listId
-    }
-    for (const e of redoStack) {
-      if (e.todoId === todoId) e.listId = listId
-    }
-  }
-
-  /** Suppression définitive : retirer l’historique lié au todo pour ne pas désynchroniser les piles. */
-  const pruneHistoryStacksForTodo = (todoId) => {
-    for (let i = undoStack.length - 1; i >= 0; i--) {
-      if (undoStack[i].todoId === todoId) undoStack.splice(i, 1)
-    }
-    for (let i = redoStack.length - 1; i >= 0; i--) {
-      if (redoStack[i].todoId === todoId) redoStack.splice(i, 1)
-    }
   }
 
   const toggleTodo = (listId, id) => {
@@ -389,7 +277,7 @@ export function useTodoStorage(storage = localStorage) {
     const list = findListById(listId)
     if (!list) return
     list.todos = list.todos.filter((t) => t.id !== id)
-    pruneHistoryStacksForTodo(id)
+    pruneHistoryStacksForTodo(undoStack, redoStack, id)
   }
 
   const renameTodo = (listId, id, text) => {
@@ -435,50 +323,6 @@ export function useTodoStorage(storage = localStorage) {
     undoStack.push(entry)
     for (let i = redoStack.length - 1; i >= 0; i--) {
       if (redoStack[i].todoId === id) redoStack.splice(i, 1)
-    }
-    updateTodoAverage(todo)
-  }
-
-  const applyUndo = (entry, todo) => {
-    if (entry.type === 'toggle') {
-      if (entry.timingAction === 'pushed') {
-        todo.timings.pop()
-      } else if (entry.timingAction === 'modified') {
-        const last = todo.timings[todo.timings.length - 1]
-        if (last) {
-          const p = entry.prev
-          if (p.end !== undefined) last.end = p.end; else delete last.end
-          if (p.quantity !== undefined) last.quantity = p.quantity; else delete last.quantity
-          if (p.unit !== undefined) last.unit = p.unit; else delete last.unit
-        }
-      }
-      todo.done = entry.wasDone
-    } else if (entry.type === 'unit-change') {
-      todo.unit = entry.oldUnit
-      todo.quantity = entry.oldQuantity
-      todo.conversions = JSON.parse(JSON.stringify(entry.oldConversions))
-    }
-    updateTodoAverage(todo)
-  }
-
-  const applyRedo = (entry, todo) => {
-    if (entry.type === 'toggle') {
-      todo.done = !entry.wasDone
-      if (entry.timingAction === 'pushed') {
-        todo.timings.push({ ...entry.timing })
-      } else if (entry.timingAction === 'modified') {
-        const last = todo.timings[todo.timings.length - 1]
-        if (last) {
-          const n = entry.next
-          last.end = n.end
-          last.quantity = n.quantity
-          last.unit = n.unit
-        }
-      }
-    } else if (entry.type === 'unit-change') {
-      todo.unit = entry.newUnit
-      todo.quantity = entry.newQuantity
-      todo.conversions = JSON.parse(JSON.stringify(entry.newConversions))
     }
     updateTodoAverage(todo)
   }
@@ -636,7 +480,7 @@ export function useTodoStorage(storage = localStorage) {
 
   const toggleManualSort = () => {
     manualSort.value = !manualSort.value
-    try { localStorage.setItem(SORT_MODE_KEY, manualSort.value ? 'manual' : 'auto') } catch {}
+    try { localStorage.setItem(STORAGE_KEYS.SORT_MODE, manualSort.value ? 'manual' : 'auto') } catch {}
   }
 
   const toggleShoppingManualSort = () => {

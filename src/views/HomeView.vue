@@ -1,14 +1,14 @@
 <script setup>
 import { computed } from 'vue'
-import TodoList from '../components/TodoList.vue'
-import ConfettiCelebration from '../components/ConfettiCelebration.vue'
-import IconCart from '../components/icons/IconCart.vue'
-import IconRefresh from '../components/icons/IconRefresh.vue'
-import IconUndo from '../components/icons/IconUndo.vue'
-import IconRedo from '../components/icons/IconRedo.vue'
-import IconSort from '../components/icons/IconSort.vue'
-import IconStats from '../components/icons/IconStats.vue'
-import { useTodoStorage } from '../composables/useTodoStorage'
+import TodoList from '@/features/todo/components/TodoList.vue'
+import ConfettiCelebration from '@/components/ui/ConfettiCelebration.vue'
+import IconCart from '@/components/ui/icons/IconCart.vue'
+import IconRefresh from '@/components/ui/icons/IconRefresh.vue'
+import IconUndo from '@/components/ui/icons/IconUndo.vue'
+import IconRedo from '@/components/ui/icons/IconRedo.vue'
+import IconSort from '@/components/ui/icons/IconSort.vue'
+import IconStats from '@/components/ui/icons/IconStats.vue'
+import { useTodoStorage } from '@/composables/useTodoStorage'
 
 const {
   shoppingMode, manualSort, shoppingManualSort, confettiTrigger,
