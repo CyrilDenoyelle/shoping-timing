@@ -4,7 +4,7 @@ import IconTrash from './icons/IconTrash.vue'
 import IconTrashOpen from './icons/IconTrashOpen.vue'
 import IconUndo from './icons/IconUndo.vue'
 import IconRedo from './icons/IconRedo.vue'
-import { UNITS, needsConversionModal, getBaseUnit, unitScale } from '../composables/useTodoStorage'
+import { UNITS, needsConversionModal, getBaseUnit, unitScale } from '../utils/units.js'
 import UnitConvertModal from './UnitConvertModal.vue'
 
 const props = defineProps({

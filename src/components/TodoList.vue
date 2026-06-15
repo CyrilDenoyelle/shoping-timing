@@ -550,12 +550,6 @@ const onShoppingDragEnd = () => {
   width: 100%;
 }
 
-.empty {
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-  padding: 0.75rem 0;
-}
-
 .add-section {
   padding-top: 0.25rem;
 }
