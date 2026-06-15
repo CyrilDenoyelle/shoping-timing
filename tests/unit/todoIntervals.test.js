@@ -43,7 +43,7 @@ describe('todoIntervals', () => {
       expect(computeWeightedIntervalMs(todo)).toBe(10_000)
     })
 
-    it('weights intervals by converted quantity', () => {
+    it('weights intervals by purchased quantity (sum(time) / sum(qty))', () => {
       const todo = {
         quantity: 1,
         unit: 'kg',
@@ -53,7 +53,20 @@ describe('todoIntervals', () => {
           { end: 15_000, quantity: 1, unit: 'kg' },
         ],
       }
-      expect(computeWeightedIntervalMs(todo)).toBeCloseTo(40_000 / 3)
+      // 5000 ms pour 0,5 kg + 10000 ms pour 0,5 kg → 15000 ms / 1 kg = 15 s/kg
+      expect(computeWeightedIntervalMs(todo)).toBe(15_000)
+    })
+
+    it('scales interval linearly with selector quantity', () => {
+      const base = {
+        unit: 'L',
+        timings: [
+          { end: 0, quantity: 1, unit: 'L' },
+          { end: 8 * DAY, quantity: 1, unit: 'L' },
+        ],
+      }
+      expect(computeWeightedIntervalMs({ ...base, quantity: 1 })).toBe(8 * DAY)
+      expect(computeWeightedIntervalMs({ ...base, quantity: 2 })).toBe(16 * DAY)
     })
   })
 

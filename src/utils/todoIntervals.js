@@ -6,7 +6,8 @@ export function computeWeightedIntervalMs(todo) {
   if (timings.length < 2) return Infinity
   const currentUnit = todo.unit || ''
   const conversions = todo.conversions ?? {}
-  const rates = []
+  let totalInterval = 0
+  let totalQty = 0
   for (let i = 0; i < timings.length - 1; i++) {
     const t = timings[i]
     const tNext = timings[i + 1]
@@ -14,12 +15,14 @@ export function computeWeightedIntervalMs(todo) {
     const interval = tNext.end - t.end
     if (interval <= 0) continue
     const qty = convertQuantity(t.quantity ?? 1, t.unit ?? '', currentUnit, conversions)
-    rates.push(qty / interval)
+    if (qty <= 0) continue
+    totalInterval += interval
+    totalQty += qty
   }
-  if (rates.length === 0) return Infinity
-  const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length
-  if (avgRate <= 0) return Infinity
-  return (todo.quantity ?? 1) / avgRate
+  if (totalQty <= 0) return Infinity
+  // Temps moyen par unité (pondéré par les qty achetées) × stock cible du sélecteur
+  const avgMsPerUnit = totalInterval / totalQty
+  return avgMsPerUnit * (todo.quantity ?? 1)
 }
 
 export function updateTodoAverage(todo) {
