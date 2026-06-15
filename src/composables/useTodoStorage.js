@@ -602,7 +602,9 @@ export function useTodoStorage(storage = localStorage) {
         displayTodos: manualSort.value ? displayed : displayed.sort(sortByProgress),
       }
     })
-    return mapped
+    return shoppingMode.value
+      ? mapped.filter((list) => list.displayTodos.length > 0)
+      : mapped
   })
 
   const allTodoTexts = computed(() =>
