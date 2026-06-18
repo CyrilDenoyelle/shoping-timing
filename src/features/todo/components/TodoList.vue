@@ -1,7 +1,6 @@
 <script setup>
 import { ref, nextTick } from 'vue'
 import TodoItem from './TodoItem.vue'
-import TodoInput from './TodoInput.vue'
 import QuickAddTodo from './QuickAddTodo.vue'
 import IconTrash from '@/components/ui/icons/IconTrash.vue'
 import { useTodoStorage } from '@/composables/useTodoStorage'
@@ -34,6 +33,7 @@ const {
 
 const showNewList = ref(false)
 const newListName = ref('')
+const quickAddListId = ref(null)
 const editingListId = ref(null)
 const editingName = ref('')
 const editInputRef = ref(null)
@@ -274,7 +274,9 @@ const onShoppingDragEnd = () => {
 <template>
   <div class="lists">
     <QuickAddTodo
+      v-model:selected-list-id="quickAddListId"
       :lists="lists"
+      :visible-list-ids="displayLists.map((l) => l.id)"
       :suggestions="allTodoTexts"
       @add="(listId, text) => addTodo(listId, text)"
       @navigate="scrollToTodo"
@@ -319,11 +321,13 @@ const onShoppingDragEnd = () => {
     <section
       v-for="(list, index) in displayLists"
       :key="list.id"
+      :data-list-id="list.id"
       class="section"
       :class="{
         'is-dragging': draggedIndex === index,
         'drag-over': dragOverIndex === index && draggedIndex !== index,
         'list-todo-drop': dragOverListZone === list.id,
+        'section--quick-add-target': list.id === quickAddListId,
       }"
       :draggable="!isDraggingTodo()"
       @dragstart="onDragStart(index, $event)"
@@ -403,8 +407,6 @@ const onShoppingDragEnd = () => {
           />
         </div>
       </TransitionGroup>
-
-      <TodoInput :suggestions="allTodoTexts" @add="(text) => addTodo(list.id, text)" @navigate="scrollToTodo" />
     </section>
 
     <div class="add-section">
@@ -454,6 +456,10 @@ const onShoppingDragEnd = () => {
 
 .section.drag-over {
   box-shadow: 0 -2px 0 0 var(--accent);
+}
+
+.section--quick-add-target .title {
+  color: var(--accent);
 }
 
 .section-header {

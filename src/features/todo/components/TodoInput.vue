@@ -162,8 +162,7 @@ const highlight = (text, query) => {
         <div
           v-if="visibleSuggestions.length"
           class="dropdown"
-          @mousedown.prevent
-          @touchstart.prevent
+          @pointerdown.prevent
         >
           <div
             v-for="(s, i) in visibleSuggestions"
@@ -173,21 +172,21 @@ const highlight = (text, query) => {
           >
             <button
               class="dropdown-item"
-              @mousedown.prevent="selectSuggestion(s)"
+              @pointerdown.prevent="selectSuggestion(s)"
             >
               <span v-html="highlight(s.text, searchQuery.trim())" />
             </button>
             <button
               class="dropdown-list-name"
               :aria-label="`Aller à ${s.text} dans ${s.listName}`"
-              @mousedown.prevent="goToItem(s)"
+              @pointerdown.prevent="goToItem(s)"
             >
               {{ s.listName }}
             </button>
             <button
               class="goto-btn"
               aria-label="Aller à l'élément"
-              @mousedown.prevent="goToItem(s)"
+              @pointerdown.prevent="goToItem(s)"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="9 4 17 12 9 20" />

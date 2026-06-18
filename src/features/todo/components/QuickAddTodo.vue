@@ -1,14 +1,18 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import TodoInput from './TodoInput.vue'
 import { STORAGE_KEYS, defaultStorage } from '@/services/storage'
+import { useScrollListPicker, scrollToList } from '@/composables/useScrollListPicker'
 
 const props = defineProps({
   lists: { type: Array, required: true },
+  visibleListIds: { type: Array, default: () => [] },
   suggestions: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['add', 'navigate'])
+
+const selectedListId = defineModel('selectedListId', { type: String, default: null })
 
 const readStoredListId = () =>
   defaultStorage.getString(STORAGE_KEYS.QUICK_ADD_LIST)
@@ -19,9 +23,20 @@ const resolveListId = (lists) => {
   return lists[0]?.id ?? null
 }
 
-const selectedListId = ref(resolveListId(props.lists))
+if (selectedListId.value == null) {
+  selectedListId.value = resolveListId(props.lists)
+}
 const dropdownOpen = ref(false)
+const userPinned = ref(false)
+const scrollingToList = ref(false)
 const pickerRef = ref(null)
+
+const { sync: syncFromScroll } = useScrollListPicker(selectedListId, {
+  isPaused: () => dropdownOpen.value || userPinned.value,
+  onScrollStart: () => {
+    if (!scrollingToList.value) userPinned.value = false
+  },
+})
 
 watch(
   () => props.lists,
@@ -47,8 +62,13 @@ const toggleDropdown = () => {
 }
 
 const selectList = (id) => {
+  userPinned.value = true
   selectedListId.value = id
   dropdownOpen.value = false
+  scrollingToList.value = true
+  scrollToList(id, () => {
+    scrollingToList.value = false
+  })
 }
 
 const onAdd = (text) => {
@@ -57,18 +77,26 @@ const onAdd = (text) => {
   }
 }
 
-const onDocumentClick = (e) => {
+const onDocumentPointerDown = (e) => {
   if (!pickerRef.value?.contains(e.target)) {
     dropdownOpen.value = false
   }
 }
 
-onMounted(() => document.addEventListener('click', onDocumentClick))
-onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
+watch(
+  () => props.visibleListIds,
+  async () => {
+    await nextTick()
+    syncFromScroll()
+  },
+)
+
+onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointerDown))
 </script>
 
 <template>
-  <div class="quick-add">
+  <div class="quick-add" data-scroll-list-picker-anchor>
     <div ref="pickerRef" class="list-picker">
       <button
         type="button"
@@ -99,8 +127,6 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
           v-if="dropdownOpen && lists.length"
           class="list-picker-menu"
           role="listbox"
-          @mousedown.prevent
-          @touchstart.prevent
         >
           <li
             v-for="list in lists"
@@ -112,7 +138,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick))
               type="button"
               class="list-picker-option"
               :class="{ active: list.id === selectedListId }"
-              @click="selectList(list.id)"
+              @click.stop="selectList(list.id)"
             >
               {{ list.name }}
             </button>
