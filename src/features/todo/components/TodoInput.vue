@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   suggestions: {
@@ -14,10 +14,11 @@ const props = defineProps({
 
 const input = ref('')
 const searchQuery = ref('')
+const rootRef = ref(null)
 const emit = defineEmits(['add', 'navigate'])
 const activeIndex = ref(-1)
 const showDropdown = ref(false)
-let blurTimer = null
+let lastActionAt = 0
 
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -30,6 +31,18 @@ const visibleSuggestions = computed(() => {
     ? filtered.value.slice(0, 8)
     : []
 })
+
+const closeDropdown = () => {
+  showDropdown.value = false
+  activeIndex.value = -1
+}
+
+const runOnce = (fn) => {
+  const now = Date.now()
+  if (now - lastActionAt < 400) return
+  lastActionAt = now
+  fn()
+}
 
 const submit = () => {
   const text = (input.value || searchQuery.value).trim()
@@ -58,15 +71,15 @@ const goToItem = (suggestion) => {
   activeIndex.value = -1
 }
 
-const cancelBlurTimer = () => {
-  if (blurTimer != null) {
-    clearTimeout(blurTimer)
-    blurTimer = null
-  }
+const handleSelect = (suggestion) => {
+  runOnce(() => selectSuggestion(suggestion))
+}
+
+const handleGoTo = (suggestion) => {
+  runOnce(() => goToItem(suggestion))
 }
 
 const onInput = (e) => {
-  cancelBlurTimer()
   searchQuery.value = e.target.value
   showDropdown.value = true
   activeIndex.value = -1
@@ -89,31 +102,34 @@ const onKeydown = (e) => {
       submit()
     }
   } else if (e.key === 'Escape') {
-    showDropdown.value = false
-    activeIndex.value = -1
+    closeDropdown()
   }
 }
 
-const onBlur = () => {
-  cancelBlurTimer()
-  blurTimer = setTimeout(() => {
-    showDropdown.value = false
-    activeIndex.value = -1
-    blurTimer = null
-  }, 150)
-}
-
 const onCompositionUpdate = (e) => {
-  cancelBlurTimer()
   searchQuery.value = e.target.value
   showDropdown.value = true
 }
 
 const onFocus = (e) => {
-  cancelBlurTimer()
   searchQuery.value = e.target.value
   if (searchQuery.value.trim()) showDropdown.value = true
 }
+
+const onDocumentPointerDown = (e) => {
+  if (!showDropdown.value) return
+  const path = e.composedPath?.() ?? [e.target]
+  if (path.includes(rootRef.value)) return
+  closeDropdown()
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocumentPointerDown, true)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+})
 
 const highlight = (text, query) => {
   if (!query) return text
@@ -146,7 +162,7 @@ const highlight = (text, query) => {
         <line x1="5" y1="12" x2="19" y2="12" />
       </svg>
     </span>
-    <div class="body">
+    <div ref="rootRef" class="body">
       <input
         v-model="input"
         type="text"
@@ -155,14 +171,13 @@ const highlight = (text, query) => {
         @input="onInput"
         @compositionupdate="onCompositionUpdate"
         @keydown="onKeydown"
-        @blur="onBlur"
         @focus="onFocus"
       />
       <Transition name="dropdown">
         <div
           v-if="visibleSuggestions.length"
           class="dropdown"
-          @pointerdown.prevent
+          @mousedown.prevent
         >
           <div
             v-for="(s, i) in visibleSuggestions"
@@ -171,22 +186,28 @@ const highlight = (text, query) => {
             :class="{ active: i === activeIndex }"
           >
             <button
+              type="button"
               class="dropdown-item"
-              @pointerdown.prevent="selectSuggestion(s)"
+              @touchstart.stop="handleSelect(s)"
+              @click.stop="handleSelect(s)"
             >
               <span v-html="highlight(s.text, searchQuery.trim())" />
             </button>
             <button
+              type="button"
               class="dropdown-list-name"
               :aria-label="`Aller à ${s.text} dans ${s.listName}`"
-              @pointerdown.prevent="goToItem(s)"
+              @touchstart.stop="handleGoTo(s)"
+              @click.stop="handleGoTo(s)"
             >
               {{ s.listName }}
             </button>
             <button
+              type="button"
               class="goto-btn"
               aria-label="Aller à l'élément"
-              @pointerdown.prevent="goToItem(s)"
+              @touchstart.stop="handleGoTo(s)"
+              @click.stop="handleGoTo(s)"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="9 4 17 12 9 20" />
@@ -256,7 +277,7 @@ const highlight = (text, query) => {
   border: 1px solid var(--color-border);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  z-index: 30;
+  z-index: 50;
   padding: 0.2rem;
   display: flex;
   flex-direction: column;
@@ -277,7 +298,7 @@ const highlight = (text, query) => {
 
 .dropdown-row {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   border-radius: 4px;
   transition: background 0.12s;
 }
@@ -293,6 +314,7 @@ const highlight = (text, query) => {
   gap: 0.5rem;
   flex: 1;
   min-width: 0;
+  min-height: 2.75rem;
   padding: 0.35rem 0.5rem;
   font-size: 0.85rem;
   font-family: inherit;
@@ -301,6 +323,8 @@ const highlight = (text, query) => {
   color: var(--color-text);
   cursor: pointer;
   text-align: left;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .dropdown-row:hover .dropdown-item,
@@ -310,7 +334,8 @@ const highlight = (text, query) => {
 
 .dropdown-list-name {
   margin-left: auto;
-  padding: 0.35rem 0.5rem;
+  padding: 0.35rem 0.65rem;
+  min-height: 2.75rem;
   font-size: 0.65rem;
   font-family: inherit;
   color: var(--color-text-muted);
@@ -321,6 +346,8 @@ const highlight = (text, query) => {
   border: none;
   cursor: pointer;
   transition: opacity 0.15s, color 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .dropdown-row:hover .dropdown-list-name,
@@ -337,11 +364,11 @@ const highlight = (text, query) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   flex-shrink: 0;
   padding: 0;
-  margin-right: 0.25rem;
   background: none;
   border: none;
   border-radius: 3px;
@@ -349,6 +376,8 @@ const highlight = (text, query) => {
   opacity: 0.35;
   cursor: pointer;
   transition: opacity 0.15s, color 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .dropdown-row:hover .goto-btn,
