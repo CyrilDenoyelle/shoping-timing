@@ -33,7 +33,6 @@ const {
 
 const showNewList = ref(false)
 const newListName = ref('')
-const quickAddListId = ref(null)
 const editingListId = ref(null)
 const editingName = ref('')
 const editInputRef = ref(null)
@@ -274,7 +273,6 @@ const onShoppingDragEnd = () => {
 <template>
   <div class="lists">
     <QuickAddTodo
-      v-model:selected-list-id="quickAddListId"
       :lists="lists"
       :visible-list-ids="displayLists.map((l) => l.id)"
       :suggestions="allTodoTexts"
@@ -327,7 +325,6 @@ const onShoppingDragEnd = () => {
         'is-dragging': draggedIndex === index,
         'drag-over': dragOverIndex === index && draggedIndex !== index,
         'list-todo-drop': dragOverListZone === list.id,
-        'section--quick-add-target': list.id === quickAddListId,
       }"
       :draggable="!isDraggingTodo()"
       @dragstart="onDragStart(index, $event)"
@@ -458,7 +455,7 @@ const onShoppingDragEnd = () => {
   box-shadow: 0 -2px 0 0 var(--accent);
 }
 
-.section--quick-add-target .title {
+.section[data-quick-add-target] .title {
   color: var(--accent);
 }
 

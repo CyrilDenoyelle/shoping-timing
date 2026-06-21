@@ -12,7 +12,7 @@ const props = defineProps({
 
 const emit = defineEmits(['add', 'navigate'])
 
-const selectedListId = defineModel('selectedListId', { type: String, default: null })
+const selectedListId = ref(null)
 
 const readStoredListId = () =>
   defaultStorage.getString(STORAGE_KEYS.QUICK_ADD_LIST)
@@ -31,7 +31,7 @@ const userPinned = ref(false)
 const scrollingToList = ref(false)
 const pickerRef = ref(null)
 
-const { sync: syncFromScroll } = useScrollListPicker(selectedListId, {
+const { sync: syncFromScroll, invalidateLayout, updateHighlight } = useScrollListPicker(selectedListId, {
   isPaused: () => dropdownOpen.value || userPinned.value,
   onScrollStart: () => {
     if (!scrollingToList.value) userPinned.value = false
@@ -48,9 +48,13 @@ watch(
   { deep: true },
 )
 
+let storageTimer = null
 watch(selectedListId, (id) => {
   if (!id) return
-  defaultStorage.setString(STORAGE_KEYS.QUICK_ADD_LIST, id)
+  clearTimeout(storageTimer)
+  storageTimer = setTimeout(() => {
+    defaultStorage.setString(STORAGE_KEYS.QUICK_ADD_LIST, id)
+  }, 400)
 })
 
 const selectedListName = computed(
@@ -64,6 +68,7 @@ const toggleDropdown = () => {
 const selectList = (id) => {
   userPinned.value = true
   selectedListId.value = id
+  updateHighlight()
   dropdownOpen.value = false
   scrollingToList.value = true
   scrollToList(id, () => {
@@ -86,13 +91,17 @@ const onDocumentPointerDown = (e) => {
 watch(
   () => props.visibleListIds,
   async () => {
+    invalidateLayout()
     await nextTick()
-    syncFromScroll()
+    syncFromScroll({ forceLayout: true })
   },
 )
 
 onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointerDown))
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown)
+  clearTimeout(storageTimer)
+})
 </script>
 
 <template>
