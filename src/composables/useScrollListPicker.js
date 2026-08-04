@@ -14,6 +14,9 @@
  *   t_list = position de la liste dans la pile (0 → 1)
  *   focusY cible = listTop + t_list × listHeight
  *   scrollY = (focusY − readingTop) / (1 + readingHeight / maxScroll) (clampé)
+ *
+ * Avec virtualisation : les bounds viennent d’un provider (mesures TanStack),
+ * plus du querySelectorAll sur des sections toujours montées.
  */
 import { onMounted, onBeforeUnmount } from 'vue'
 
@@ -24,10 +27,8 @@ let layoutCache = null
 let resizeObserver = null
 let highlightedListId = null
 let highlightedEl = null
-
-function getSections() {
-  return [...document.querySelectorAll('[data-list-id]')]
-}
+/** @type {null | (() => { id: string, top: number, span: number }[] | null)} */
+let boundsProvider = null
 
 /** Bas viewport (px) de la barre sticky — début de la zone de lecture. */
 function measureReadingTop() {
@@ -41,18 +42,15 @@ function scrollT(scrollY, maxScroll) {
   return Math.min(1, Math.max(0, scrollY / maxScroll))
 }
 
-function observeSections(sections) {
+function observeAnchor() {
   resizeObserver?.disconnect()
-  if (!sections.length || typeof ResizeObserver === 'undefined') return
-
+  if (typeof ResizeObserver === 'undefined') return
+  const anchor = document.querySelector(SCROLL_ANCHOR_SELECTOR)
+  if (!anchor) return
   resizeObserver = new ResizeObserver(() => {
     invalidateLayout()
   })
-  for (const section of sections) {
-    resizeObserver.observe(section)
-  }
-  const anchor = document.querySelector(SCROLL_ANCHOR_SELECTOR)
-  if (anchor) resizeObserver.observe(anchor)
+  resizeObserver.observe(anchor)
 }
 
 /** Invalide le cache de positions document (listes, hauteurs). */
@@ -60,47 +58,56 @@ export function invalidateLayout() {
   layoutCache = null
 }
 
-function buildLayoutCache(sections, scrollY, viewportH) {
-  const bounds = sections.map((section) => {
-    const rect = section.getBoundingClientRect()
-    const top = rect.top + scrollY
-    return { id: section.dataset.listId, top, span: rect.height, el: section }
-  })
+/** @type {null | ((listId: string, onDone?: () => void) => void)} */
+let listScrollFn = null
 
+/**
+ * Fournit les bounds des listes (Y document) — typiquement dérivés du virtualizer.
+ * Passer null pour désactiver.
+ */
+export function setListBoundsProvider(provider) {
+  boundsProvider = provider
+  invalidateLayout()
+}
+
+/** Scroll programmatique vers une liste (ex. virtualizer.scrollToIndex). */
+export function setListScrollFn(fn) {
+  listScrollFn = fn
+}
+
+function buildLayoutFromBounds(bounds) {
+  const viewportH = window.innerHeight
   const maxScroll = Math.max(0, document.documentElement.scrollHeight - viewportH)
   const readingTop = measureReadingTop()
   const readingHeight = Math.max(0, viewportH - readingTop)
 
   layoutCache = {
-    bounds,
+    bounds: bounds.map((b) => ({ ...b })),
     viewportH,
     maxScroll,
     readingTop,
     readingHeight,
   }
-  observeSections(sections)
+  observeAnchor()
   return layoutCache
 }
 
 /**
  * Mesure la pile de listes.
- * En cache hit, seul scrollY est relu — pas de getBoundingClientRect / scrollHeight.
+ * En cache hit, seul scrollY est relu ailleurs — pas de reflow ici.
  */
 export function measureListLayout({ force = false } = {}) {
-  const scrollY = window.scrollY
-
   if (!force && layoutCache?.bounds?.length) {
     return layoutCache
   }
 
-  const viewportH = window.innerHeight
-  const sections = getSections()
-  if (!sections.length) {
-    layoutCache = null
-    return null
+  const provided = boundsProvider?.()
+  if (provided?.length) {
+    return buildLayoutFromBounds(provided)
   }
 
-  return buildLayoutCache(sections, scrollY, viewportH)
+  layoutCache = null
+  return null
 }
 
 /** Point visé dans une section : t=0 → haut, t=1 → bas. */
@@ -197,6 +204,11 @@ export function scrollYForList(listId) {
 
 /** Fait défiler jusqu'à la section liste (inverse exact de listIdFromScrollPosition). */
 export function scrollToList(listId, onDone) {
+  if (listScrollFn) {
+    listScrollFn(listId, onDone)
+    return
+  }
+
   const top = scrollYForList(listId)
   if (top == null) {
     onDone?.()
@@ -220,13 +232,18 @@ export function scrollToList(listId, onDone) {
 }
 
 function findSectionEl(id) {
-  const cached = layoutCache?.bounds?.find((b) => b.id === id)?.el
-  if (cached?.isConnected) return cached
   return document.querySelector(`[data-list-id="${id}"]`)
 }
 
 function updateSectionHighlight(id) {
-  if (highlightedListId === id) return
+  if (highlightedListId === id) {
+    // Re-bind si la ligne virtualisée a été recyclée / remontée.
+    if (id && (!highlightedEl || !highlightedEl.isConnected)) {
+      highlightedEl = findSectionEl(id)
+      highlightedEl?.setAttribute(HIGHLIGHT_ATTR, '')
+    }
+    return
+  }
   if (highlightedEl?.isConnected) {
     highlightedEl.removeAttribute(HIGHLIGHT_ATTR)
   } else if (highlightedListId) {
@@ -250,6 +267,21 @@ function clearSectionHighlight() {
   }
   highlightedListId = null
   highlightedEl = null
+}
+
+/** Ré-applique le highlight si la ligne virtualisée vient d’être (re)montée. */
+export function rebindSectionHighlight() {
+  if (!highlightedListId) return
+  const el = findSectionEl(highlightedListId)
+  if (!el) {
+    highlightedEl = null
+    return
+  }
+  if (el !== highlightedEl) {
+    if (highlightedEl?.isConnected) highlightedEl.removeAttribute(HIGHLIGHT_ATTR)
+    highlightedEl = el
+  }
+  if (!el.hasAttribute(HIGHLIGHT_ATTR)) el.setAttribute(HIGHLIGHT_ATTR, '')
 }
 
 export function useScrollListPicker(selectedListId, { isPaused = () => false, onScrollStart } = {}) {
@@ -276,8 +308,6 @@ export function useScrollListPicker(selectedListId, { isPaused = () => false, on
         } else if (id !== selectedListId.value && id !== pendingId) {
           pendingId = id
           clearTimeout(commitTimer)
-          // Diffère le commit Vue : le highlight DOM reste immédiat, le label sticky
-          // ne se met à jour qu'après une courte pause (évite re-renders en rafale).
           commitTimer = setTimeout(() => {
             commitTimer = null
             const next = pendingId

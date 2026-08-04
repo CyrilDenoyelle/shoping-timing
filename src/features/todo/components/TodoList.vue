@@ -1,9 +1,30 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import {
+  ref,
+  computed,
+  watch,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+} from 'vue'
+import { useWindowVirtualizer } from '@tanstack/vue-virtual'
 import TodoItem from './TodoItem.vue'
 import QuickAddTodo from './QuickAddTodo.vue'
 import IconTrash from '@/components/ui/icons/IconTrash.vue'
 import { useTodoStorage } from '@/composables/useTodoStorage'
+import {
+  invalidateLayout,
+  setListBoundsProvider,
+  setListScrollFn,
+  rebindSectionHighlight,
+} from '@/composables/useScrollListPicker'
+import {
+  buildVirtualRows,
+  estimateRowSize,
+  listBoundsFromMeasurements,
+  findTodoRowIndex,
+  findListHeaderRowIndex,
+} from '@/utils/todo/virtualRows.js'
 
 const {
   lists,
@@ -37,6 +58,87 @@ const editingListId = ref(null)
 const editingName = ref('')
 const editInputRef = ref(null)
 const newListInputRef = ref(null)
+
+const listParentRef = ref(null)
+const parentOffsetRef = ref(0)
+
+const virtualRows = computed(() =>
+  buildVirtualRows({
+    shoppingMode: shoppingMode.value,
+    shoppingTodos: shoppingTodos.value,
+    displayLists: displayLists.value,
+    manualSort: manualSort.value,
+  }),
+)
+
+const visibleListIds = computed(() => displayLists.value.map((l) => l.id))
+
+const updateParentOffset = () => {
+  parentOffsetRef.value = listParentRef.value?.offsetTop ?? 0
+}
+
+const virtualizerOptions = computed(() => ({
+  count: virtualRows.value.length,
+  estimateSize: (index) => estimateRowSize(virtualRows.value[index] ?? { type: 'todo' }),
+  overscan: 10,
+  scrollMargin: parentOffsetRef.value,
+  scrollPaddingStart: 72,
+  getItemKey: (index) => virtualRows.value[index]?.key ?? index,
+}))
+
+const virtualizer = useWindowVirtualizer(virtualizerOptions)
+
+const virtualItems = computed(() => virtualizer.value.getVirtualItems())
+const totalSize = computed(() => virtualizer.value.getTotalSize())
+const scrollMargin = computed(
+  () => virtualizer.value.options.scrollMargin ?? parentOffsetRef.value,
+)
+
+const measureRow = (el) => {
+  if (!el) return
+  virtualizer.value.measureElement(el)
+  if (el.getAttribute('data-row-type') === 'list-header') {
+    rebindSectionHighlight()
+  }
+}
+
+setListBoundsProvider(() => {
+  const rows = virtualRows.value
+  const measurements = virtualizer.value.measurementsCache
+  if (!rows.length || !measurements?.length) return null
+  const bounds = listBoundsFromMeasurements(rows, measurements)
+  return bounds.length ? bounds : null
+})
+
+setListScrollFn((listId, onDone) => {
+  const index = findListHeaderRowIndex(virtualRows.value, listId)
+  if (index < 0) {
+    onDone?.()
+    return
+  }
+  virtualizer.value.scrollToIndex(index, { align: 'start', behavior: 'smooth' })
+  if (!onDone) return
+  let done = false
+  const finish = () => {
+    if (done) return
+    done = true
+    window.removeEventListener('scrollend', finish)
+    clearTimeout(fallback)
+    onDone()
+  }
+  window.addEventListener('scrollend', finish, { once: true })
+  const fallback = setTimeout(finish, 600)
+})
+
+watch(
+  [virtualRows, totalSize, parentOffsetRef],
+  async () => {
+    await nextTick()
+    updateParentOffset()
+    invalidateLayout()
+  },
+  { flush: 'post' },
+)
 
 const createList = () => {
   const name = newListName.value.trim()
@@ -82,26 +184,18 @@ const cancelEditList = () => {
 
 const draggedIndex = ref(null)
 const dragOverIndex = ref(null)
-/** Index armé au pointerdown sur la poignée — évite draggable=true permanent (jank scroll mobile). */
 const listDragArmedIndex = ref(null)
-
-const setSectionDraggable = (index, enabled) => {
-  const sections = document.querySelectorAll('.lists > .section[data-list-id]')
-  const el = sections[index]
-  if (el) el.draggable = enabled
-}
 
 const armListDrag = (index, e) => {
   if (isDraggingTodo()) return
   listDragArmedIndex.value = index
-  // Sync avant le prochain event du geste — le binding Vue est trop tardif pour dragstart.
-  e.currentTarget.closest('section')?.setAttribute('draggable', 'true')
+  e.currentTarget.closest('.section-header-row')?.setAttribute('draggable', 'true')
 }
 
 const disarmListDrag = () => {
-  if (listDragArmedIndex.value !== null) {
-    setSectionDraggable(listDragArmedIndex.value, false)
-  }
+  document.querySelectorAll('.section-header-row[draggable="true"]').forEach((el) => {
+    el.draggable = false
+  })
   listDragArmedIndex.value = null
 }
 
@@ -145,25 +239,67 @@ const onDragEnd = () => {
 }
 
 const scrollToTodo = async (listId, todoId) => {
-  await nextTick()
+  const index = findTodoRowIndex(virtualRows.value, listId, todoId)
+  if (index < 0) return
+  virtualizer.value.scrollToIndex(index, { align: 'center', behavior: 'smooth' })
+
   const key = `${listId}-${todoId}`
-  const el = document.querySelector(`[data-todo-id="${key}"]`)
-  if (!el) return
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  el.classList.add('highlight-flash')
-  setTimeout(() => el.classList.remove('highlight-flash'), 5000)
+  const tryFlash = (attempts = 30) => {
+    const el = document.querySelector(`[data-todo-id="${key}"]`)
+    if (el) {
+      el.classList.add('highlight-flash')
+      setTimeout(() => el.classList.remove('highlight-flash'), 5000)
+      return
+    }
+    if (attempts > 0) requestAnimationFrame(() => tryFlash(attempts - 1))
+  }
+  await nextTick()
+  tryFlash()
 }
+
+watch(showNewList, async () => {
+  await nextTick()
+  virtualizer.value.measure()
+  invalidateLayout()
+})
 
 const draggedTodoListId = ref(null)
 const draggedTodoIndex = ref(null)
 const dragOverTodoKey = ref(null)
 const dragOverHalf = ref(null)
 const dragOverListZone = ref(null)
+const todoDragArmedKey = ref(null)
+const shoppingDragArmedIndex = ref(null)
 
 const isDraggingTodo = () => draggedTodoListId.value !== null
 
+const armTodoDrag = (listId, index, e) => {
+  if (!manualSort.value) return
+  if (!e.target.closest?.('.drag-grip')) return
+  todoDragArmedKey.value = `${listId}-${index}`
+  e.currentTarget.setAttribute('draggable', 'true')
+}
+
+const disarmTodoDragAttr = () => {
+  document.querySelectorAll('.todo-row[draggable="true"]').forEach((el) => {
+    el.draggable = false
+  })
+  todoDragArmedKey.value = null
+  shoppingDragArmedIndex.value = null
+}
+
+const onTodoPointerUp = () => {
+  if (draggedTodoListId.value === null && draggedShoppingIndex.value === null) {
+    disarmTodoDragAttr()
+  }
+}
+
 const onTodoDragStart = (listId, index, e) => {
   if (!manualSort.value) return
+  if (todoDragArmedKey.value !== `${listId}-${index}`) {
+    e.preventDefault()
+    return
+  }
   e.stopPropagation()
   draggedTodoListId.value = listId
   draggedTodoIndex.value = index
@@ -177,7 +313,7 @@ const onTodoDragOver = (listId, index, e) => {
   e.stopPropagation()
   e.dataTransfer.dropEffect = 'move'
   const rect = e.currentTarget.getBoundingClientRect()
-  const half = (e.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
+  const half = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
   dragOverTodoKey.value = `${listId}-${index}`
   dragOverHalf.value = half
   dragOverListZone.value = null
@@ -245,6 +381,7 @@ const resetTodoDrag = () => {
   dragOverTodoKey.value = null
   dragOverHalf.value = null
   dragOverListZone.value = null
+  disarmTodoDragAttr()
 }
 
 const onTodoDragEnd = () => {
@@ -255,8 +392,19 @@ const draggedShoppingIndex = ref(null)
 const dragOverShoppingKey = ref(null)
 const dragOverShoppingHalf = ref(null)
 
+const armShoppingDrag = (index, e) => {
+  if (!shoppingManualSort.value) return
+  if (!e.target.closest?.('.drag-grip')) return
+  shoppingDragArmedIndex.value = index
+  e.currentTarget.setAttribute('draggable', 'true')
+}
+
 const onShoppingDragStart = (index, e) => {
   if (!shoppingManualSort.value) return
+  if (shoppingDragArmedIndex.value !== index) {
+    e.preventDefault()
+    return
+  }
   e.stopPropagation()
   draggedShoppingIndex.value = index
   e.dataTransfer.effectAllowed = 'move'
@@ -269,7 +417,7 @@ const onShoppingDragOver = (index, e) => {
   e.stopPropagation()
   e.dataTransfer.dropEffect = 'move'
   const rect = e.currentTarget.getBoundingClientRect()
-  dragOverShoppingHalf.value = (e.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
+  dragOverShoppingHalf.value = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
   dragOverShoppingKey.value = index
 }
 
@@ -295,208 +443,295 @@ const resetShoppingDrag = () => {
   draggedShoppingIndex.value = null
   dragOverShoppingKey.value = null
   dragOverShoppingHalf.value = null
+  shoppingDragArmedIndex.value = null
+  disarmTodoDragAttr()
 }
 
 const onShoppingDragEnd = () => {
   resetShoppingDrag()
 }
+
+const onResize = () => {
+  updateParentOffset()
+  virtualizer.value.measure()
+  invalidateLayout()
+}
+
+onMounted(() => {
+  updateParentOffset()
+  invalidateLayout()
+  window.addEventListener('resize', onResize, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize)
+  setListBoundsProvider(null)
+  setListScrollFn(null)
+})
 </script>
 
 <template>
   <div class="lists">
     <QuickAddTodo
       :lists="lists"
-      :visible-list-ids="displayLists.map((l) => l.id)"
+      :visible-list-ids="visibleListIds"
       :suggestions="allTodoTexts"
       @add="(listId, text) => addTodo(listId, text)"
       @navigate="scrollToTodo"
       @toggle="(listId, todoId) => toggleTodo(listId, todoId)"
     />
 
-    <section v-if="shoppingMode && shoppingTodos.length" class="section shopping-section">
-      <TransitionGroup name="fade" tag="div" class="items">
-        <div
-          v-for="(todo, si) in shoppingTodos"
-          :key="'s-' + todo.id"
-          :data-todo-id="todo.listId + '-' + todo.id"
-          :draggable="shoppingManualSort"
-          :class="{
-            'todo-dragging': shoppingManualSort && draggedShoppingIndex === si,
-            'todo-drag-before': shoppingManualSort && dragOverShoppingKey === si && dragOverShoppingHalf === 'before' && draggedShoppingIndex !== si,
-            'todo-drag-after': shoppingManualSort && dragOverShoppingKey === si && dragOverShoppingHalf === 'after' && draggedShoppingIndex !== si,
-          }"
-          @dragstart="onShoppingDragStart(si, $event)"
-          @dragover="onShoppingDragOver(si, $event)"
-          @dragleave="onShoppingDragLeave($event)"
-          @drop="onShoppingDrop(si, $event)"
-          @dragend="onShoppingDragEnd"
-        >
-          <TodoItem
-            :todo="todo"
-            :shopping-mode="true"
-            :reorderable="shoppingManualSort"
-            :can-undo="canUndoTodo(todo.id)"
-            :can-redo="canRedoTodo(todo.id)"
-            @toggle="toggleTodo(todo.listId, todo.id)"
-            @remove="removeTodo(todo.listId, todo.id)"
-            @rename="(id, text) => renameTodo(todo.listId, id, text)"
-            @set-quantity="(qty) => setQuantity(todo.listId, todo.id, qty)"
-            @set-unit="(unit, factor, newQty) => setUnit(todo.listId, todo.id, unit, factor, newQty)"
-            @undo="undoTodoAction(todo.listId, todo.id)"
-            @redo="redoTodoAction(todo.listId, todo.id)"
-          />
-        </div>
-      </TransitionGroup>
-    </section>
-
-    <section
-      v-for="(list, index) in displayLists"
-      :key="list.id"
-      :data-list-id="list.id"
-      class="section"
-      :class="{
-        'is-dragging': draggedIndex === index,
-        'drag-over': dragOverIndex === index && draggedIndex !== index,
-        'list-todo-drop': dragOverListZone === list.id,
-      }"
-      :draggable="listDragArmedIndex === index"
-      @dragstart="onDragStart(index, $event)"
-      @dragover="onDragOver(index, $event)"
-      @dragleave="onDragLeave"
-      @drop="onDrop(index)"
-      @dragend="onDragEnd"
+    <div
+      ref="listParentRef"
+      class="virtual-list"
+      :style="{ height: `${totalSize}px` }"
     >
-      <div class="section-header">
-        <span
-          class="drag-handle"
-          aria-label="Glisser pour réordonner"
-          @pointerdown="armListDrag(index, $event)"
-          @pointerup="onHandlePointerUp"
-          @pointercancel="onHandlePointerUp"
-        >⠿</span>
-        <input
-          v-if="editingListId === list.id"
-          ref="editInputRef"
-          v-model="editingName"
-          type="text"
-          class="title-input"
-          @blur="saveEditList"
-          @keydown.enter="saveEditList"
-          @keydown.escape="cancelEditList"
-        />
-        <h2
-          v-else
-          class="title"
-          @dblclick="startEditList(list)"
-        >
-          {{ list.name }}
-        </h2>
-        <button
-          v-if="editingListId === list.id && displayLists.length > 1"
-          class="delete-list"
-          aria-label="Supprimer la liste"
-          @mousedown.prevent.stop="removeList(list.id)"
-        >
-          <IconTrash />
-        </button>
-      </div>
-
-      <TransitionGroup
-        name="fade"
-        tag="div"
-        class="items"
-        :class="{ 'items--empty-drop': manualSort && !list.displayTodos.length }"
-        @dragover="onListZoneDragOver(list.id, $event)"
-        @dragleave="onListZoneDragLeave"
-        @drop="onListZoneDrop(list.id, list.displayTodos.length, $event)"
+      <div
+        v-for="vItem in virtualItems"
+        :key="virtualRows[vItem.index]?.key ?? vItem.key"
+        :ref="measureRow"
+        class="v-row"
+        :data-index="vItem.index"
+        :data-row-type="virtualRows[vItem.index]?.type"
+        :style="{
+          transform: `translateY(${vItem.start - scrollMargin}px)`,
+        }"
       >
-        <div
-          v-for="(todo, ti) in list.displayTodos"
-          :key="todo.id"
-          :data-todo-id="list.id + '-' + todo.id"
-          :draggable="manualSort"
-          :class="{
-            'todo-dragging': manualSort && draggedTodoListId === list.id && draggedTodoIndex === ti,
-            'todo-drag-before': dragOverTodoKey === list.id + '-' + ti && dragOverHalf === 'before' && !(draggedTodoListId === list.id && draggedTodoIndex === ti),
-            'todo-drag-after': dragOverTodoKey === list.id + '-' + ti && dragOverHalf === 'after' && !(draggedTodoListId === list.id && draggedTodoIndex === ti),
-          }"
-          @dragstart="onTodoDragStart(list.id, ti, $event)"
-          @dragover="onTodoDragOver(list.id, ti, $event)"
-          @dragleave="onTodoDragLeave($event)"
-          @drop="onTodoDrop(list.id, ti, $event)"
-          @dragend="onTodoDragEnd"
-        >
-          <TodoItem
-            :todo="todo"
-            :compact="shoppingMode && todo.done"
-            :shopping-mode="shoppingMode"
-            :reorderable="manualSort"
-            :can-undo="canUndoTodo(todo.id)"
-            :can-redo="canRedoTodo(todo.id)"
-            @toggle="toggleTodo(list.id, todo.id)"
-            @remove="removeTodo(list.id, todo.id)"
-            @rename="(id, text) => renameTodo(list.id, id, text)"
-            @set-quantity="(qty) => setQuantity(list.id, todo.id, qty)"
-            @set-unit="(unit, factor, newQty) => setUnit(list.id, todo.id, unit, factor, newQty)"
-            @undo="undoTodoAction(list.id, todo.id)"
-            @redo="redoTodoAction(list.id, todo.id)"
-          />
-        </div>
-      </TransitionGroup>
-    </section>
+        <template v-if="virtualRows[vItem.index]?.type === 'shopping-todo'">
+          <div
+            class="todo-row"
+            :data-todo-id="virtualRows[vItem.index].todo.listId + '-' + virtualRows[vItem.index].todo.id"
+            :draggable="shoppingDragArmedIndex === virtualRows[vItem.index].shoppingIndex"
+            :class="{
+              'todo-dragging':
+                shoppingManualSort &&
+                draggedShoppingIndex === virtualRows[vItem.index].shoppingIndex,
+              'todo-drag-before':
+                shoppingManualSort &&
+                dragOverShoppingKey === virtualRows[vItem.index].shoppingIndex &&
+                dragOverShoppingHalf === 'before' &&
+                draggedShoppingIndex !== virtualRows[vItem.index].shoppingIndex,
+              'todo-drag-after':
+                shoppingManualSort &&
+                dragOverShoppingKey === virtualRows[vItem.index].shoppingIndex &&
+                dragOverShoppingHalf === 'after' &&
+                draggedShoppingIndex !== virtualRows[vItem.index].shoppingIndex,
+            }"
+            @pointerdown="armShoppingDrag(virtualRows[vItem.index].shoppingIndex, $event)"
+            @pointerup="onTodoPointerUp"
+            @pointercancel="onTodoPointerUp"
+            @dragstart="onShoppingDragStart(virtualRows[vItem.index].shoppingIndex, $event)"
+            @dragover="onShoppingDragOver(virtualRows[vItem.index].shoppingIndex, $event)"
+            @dragleave="onShoppingDragLeave($event)"
+            @drop="onShoppingDrop(virtualRows[vItem.index].shoppingIndex, $event)"
+            @dragend="onShoppingDragEnd"
+          >
+            <TodoItem
+              :todo="virtualRows[vItem.index].todo"
+              :shopping-mode="true"
+              :reorderable="shoppingManualSort"
+              :can-undo="canUndoTodo(virtualRows[vItem.index].todo.id)"
+              :can-redo="canRedoTodo(virtualRows[vItem.index].todo.id)"
+              @toggle="toggleTodo(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id)"
+              @remove="removeTodo(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id)"
+              @rename="(id, text) => renameTodo(virtualRows[vItem.index].todo.listId, id, text)"
+              @set-quantity="(qty) => setQuantity(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id, qty)"
+              @set-unit="(unit, factor, newQty) => setUnit(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id, unit, factor, newQty)"
+              @undo="undoTodoAction(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id)"
+              @redo="redoTodoAction(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id)"
+            />
+          </div>
+        </template>
 
-    <div class="add-section">
-      <div v-if="showNewList" class="new-form">
-        <input
-          ref="newListInputRef"
-          v-model="newListName"
-          type="text"
-          placeholder="Nom de la liste"
-          class="new-input"
-          @keydown.enter="createList"
-          @keydown.escape="cancelNew"
-          @blur="cancelNew"
+        <div
+          v-else-if="virtualRows[vItem.index]?.type === 'shopping-end'"
+          class="shopping-end"
         />
+
+        <div
+          v-else-if="virtualRows[vItem.index]?.type === 'list-header'"
+          class="section-header-row"
+          :data-list-id="virtualRows[vItem.index].listId"
+          :class="{
+            'is-first': virtualRows[vItem.index].isFirstList,
+            'is-dragging': draggedIndex === virtualRows[vItem.index].listIndex,
+            'drag-over':
+              dragOverIndex === virtualRows[vItem.index].listIndex &&
+              draggedIndex !== virtualRows[vItem.index].listIndex,
+            'list-todo-drop': dragOverListZone === virtualRows[vItem.index].listId,
+          }"
+          :draggable="listDragArmedIndex === virtualRows[vItem.index].listIndex"
+          @dragstart="onDragStart(virtualRows[vItem.index].listIndex, $event)"
+          @dragover="onDragOver(virtualRows[vItem.index].listIndex, $event)"
+          @dragleave="onDragLeave"
+          @drop="onDrop(virtualRows[vItem.index].listIndex)"
+          @dragend="onDragEnd"
+        >
+          <div class="section-header">
+            <span
+              class="drag-handle"
+              aria-label="Glisser pour réordonner"
+              @pointerdown="armListDrag(virtualRows[vItem.index].listIndex, $event)"
+              @pointerup="onHandlePointerUp"
+              @pointercancel="onHandlePointerUp"
+            >⠿</span>
+            <input
+              v-if="editingListId === virtualRows[vItem.index].listId"
+              ref="editInputRef"
+              v-model="editingName"
+              type="text"
+              class="title-input"
+              @blur="saveEditList"
+              @keydown.enter="saveEditList"
+              @keydown.escape="cancelEditList"
+            />
+            <h2
+              v-else
+              class="title"
+              @dblclick="startEditList(virtualRows[vItem.index].list)"
+            >
+              {{ virtualRows[vItem.index].list.name }}
+            </h2>
+            <button
+              v-if="editingListId === virtualRows[vItem.index].listId && displayLists.length > 1"
+              class="delete-list"
+              aria-label="Supprimer la liste"
+              @mousedown.prevent.stop="removeList(virtualRows[vItem.index].listId)"
+            >
+              <IconTrash />
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-else-if="virtualRows[vItem.index]?.type === 'list-empty'"
+          class="items--empty-drop"
+          :class="{ 'list-todo-drop': dragOverListZone === virtualRows[vItem.index].listId }"
+          @dragover="onListZoneDragOver(virtualRows[vItem.index].listId, $event)"
+          @dragleave="onListZoneDragLeave"
+          @drop="onListZoneDrop(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoCount, $event)"
+        />
+
+        <template v-else-if="virtualRows[vItem.index]?.type === 'todo'">
+          <div
+            class="todo-row"
+            :data-todo-id="virtualRows[vItem.index].listId + '-' + virtualRows[vItem.index].todo.id"
+            :draggable="todoDragArmedKey === virtualRows[vItem.index].listId + '-' + virtualRows[vItem.index].todoIndex"
+            :class="{
+              'todo-dragging':
+                manualSort &&
+                draggedTodoListId === virtualRows[vItem.index].listId &&
+                draggedTodoIndex === virtualRows[vItem.index].todoIndex,
+              'todo-drag-before':
+                dragOverTodoKey ===
+                  virtualRows[vItem.index].listId + '-' + virtualRows[vItem.index].todoIndex &&
+                dragOverHalf === 'before' &&
+                !(
+                  draggedTodoListId === virtualRows[vItem.index].listId &&
+                  draggedTodoIndex === virtualRows[vItem.index].todoIndex
+                ),
+              'todo-drag-after':
+                dragOverTodoKey ===
+                  virtualRows[vItem.index].listId + '-' + virtualRows[vItem.index].todoIndex &&
+                dragOverHalf === 'after' &&
+                !(
+                  draggedTodoListId === virtualRows[vItem.index].listId &&
+                  draggedTodoIndex === virtualRows[vItem.index].todoIndex
+                ),
+            }"
+            @pointerdown="armTodoDrag(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoIndex, $event)"
+            @pointerup="onTodoPointerUp"
+            @pointercancel="onTodoPointerUp"
+            @dragstart="onTodoDragStart(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoIndex, $event)"
+            @dragover="onTodoDragOver(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoIndex, $event)"
+            @dragleave="onTodoDragLeave($event)"
+            @drop="onTodoDrop(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoIndex, $event)"
+            @dragend="onTodoDragEnd"
+          >
+            <TodoItem
+              :todo="virtualRows[vItem.index].todo"
+              :compact="virtualRows[vItem.index].compact"
+              :shopping-mode="shoppingMode"
+              :reorderable="manualSort"
+              :can-undo="canUndoTodo(virtualRows[vItem.index].todo.id)"
+              :can-redo="canRedoTodo(virtualRows[vItem.index].todo.id)"
+              @toggle="toggleTodo(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id)"
+              @remove="removeTodo(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id)"
+              @rename="(id, text) => renameTodo(virtualRows[vItem.index].listId, id, text)"
+              @set-quantity="(qty) => setQuantity(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id, qty)"
+              @set-unit="(unit, factor, newQty) => setUnit(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id, unit, factor, newQty)"
+              @undo="undoTodoAction(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id)"
+              @redo="redoTodoAction(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id)"
+            />
+          </div>
+        </template>
+
+        <div v-else-if="virtualRows[vItem.index]?.type === 'add-list'" class="add-section">
+          <div v-if="showNewList" class="new-form">
+            <input
+              ref="newListInputRef"
+              v-model="newListName"
+              type="text"
+              placeholder="Nom de la liste"
+              class="new-input"
+              @keydown.enter="createList"
+              @keydown.escape="cancelNew"
+              @blur="cancelNew"
+            />
+          </div>
+          <button v-else class="add-btn" @click="openNewList">
+            + Nouvelle liste
+          </button>
+        </div>
       </div>
-      <button v-else class="add-btn" @click="openNewList">
-        + Nouvelle liste
-      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
 .lists {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
   touch-action: pan-y;
 }
 
-.section {
+.virtual-list {
   position: relative;
-  border-radius: 8px;
-  padding: 0.5rem;
-  margin: -0.5rem;
-  transition: opacity 0.25s, box-shadow 0.25s, background 0.25s;
+  width: 100%;
+}
+
+.v-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
   touch-action: pan-y;
 }
 
-.shopping-section {
-  padding-bottom: 1rem;
-  margin-bottom: 0.5rem;
-  border-bottom: 1px solid var(--color-border);
+.section-header-row {
+  border-radius: 8px;
+  padding: 0.5rem 0.5rem 0.25rem;
+  margin: 0 -0.5rem;
+  transition: opacity 0.25s, box-shadow 0.25s, background 0.25s;
 }
 
-.section.is-dragging {
+.section-header-row:not(.is-first) {
+  margin-top: 1.25rem;
+}
+
+.shopping-end {
+  margin: 0.5rem 0 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+  height: 1px;
+}
+
+.section-header-row.is-dragging {
   opacity: 0.4;
 }
 
-.section.drag-over {
+.section-header-row.drag-over {
   box-shadow: 0 -2px 0 0 var(--accent);
 }
 
-.section[data-quick-add-target] .title {
+.section-header-row[data-quick-add-target] .title {
   color: var(--accent);
 }
 
@@ -504,7 +739,6 @@ const onShoppingDragEnd = () => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.25rem;
 }
 
 .drag-handle {
@@ -566,37 +800,15 @@ const onShoppingDragEnd = () => {
   color: var(--danger);
 }
 
-.items {
-  position: relative;
-}
-
-/* Liste vide : zone de drop avec hauteur, sinon le DnD n’a aucune cible */
 .items--empty-drop {
   min-height: 1.375rem;
-}
-
-.fade-move {
-  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: all 0.35s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-
-.fade-leave-active {
-  position: absolute;
-  width: 100%;
+  margin: 0 -0.5rem;
+  padding: 0 0.5rem;
+  border-radius: 6px;
 }
 
 .add-section {
-  padding-top: 0.25rem;
+  padding-top: 1.25rem;
 }
 
 .add-btn {
@@ -672,7 +884,6 @@ const onShoppingDragEnd = () => {
 
 [draggable="true"] {
   cursor: grab;
-  /* Priorise le scroll vertical tactile ; le DnD souris reste disponible. */
   touch-action: pan-y;
 }
 
