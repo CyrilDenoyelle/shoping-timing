@@ -278,6 +278,7 @@ const onShoppingDragEnd = () => {
       :suggestions="allTodoTexts"
       @add="(listId, text) => addTodo(listId, text)"
       @navigate="scrollToTodo"
+      @toggle="(listId, todoId) => toggleTodo(listId, todoId)"
     />
 
     <section v-if="shoppingMode && shoppingTodos.length" class="section shopping-section">

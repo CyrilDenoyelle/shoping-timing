@@ -444,7 +444,13 @@ export function useTodoStorage(storage = defaultStorage) {
 
   const allTodoTexts = computed(() =>
     lists.value.flatMap((l) =>
-      l.todos.map((t) => ({ text: t.text, listName: l.name, listId: l.id, todoId: t.id }))
+      l.todos.map((t) => ({
+        text: t.text,
+        listName: l.name,
+        listId: l.id,
+        todoId: t.id,
+        done: !!t.done,
+      }))
     )
   )
 

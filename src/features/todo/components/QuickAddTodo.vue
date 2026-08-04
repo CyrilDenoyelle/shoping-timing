@@ -10,7 +10,7 @@ const props = defineProps({
   suggestions: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['add', 'navigate'])
+const emit = defineEmits(['add', 'navigate', 'toggle'])
 
 const selectedListId = ref(null)
 
@@ -161,6 +161,7 @@ onBeforeUnmount(() => {
       :suggestions="suggestions"
       @add="onAdd"
       @navigate="(listId, todoId) => emit('navigate', listId, todoId)"
+      @toggle="(listId, todoId) => emit('toggle', listId, todoId)"
     />
   </div>
 </template>

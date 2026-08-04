@@ -15,10 +15,11 @@ const props = defineProps({
 const input = ref('')
 const searchQuery = ref('')
 const rootRef = ref(null)
-const emit = defineEmits(['add', 'navigate'])
+const emit = defineEmits(['add', 'navigate', 'toggle'])
 const activeIndex = ref(-1)
 const showDropdown = ref(false)
 let lastActionAt = 0
+let lastActionKey = ''
 
 const filtered = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -37,10 +38,12 @@ const closeDropdown = () => {
   activeIndex.value = -1
 }
 
-const runOnce = (fn) => {
+const runOnce = (fn, key = '') => {
   const now = Date.now()
-  if (now - lastActionAt < 400) return
+  if (key && key === lastActionKey && now - lastActionAt < 400) return
+  if (!key && now - lastActionAt < 400) return
   lastActionAt = now
+  lastActionKey = key
   fn()
 }
 
@@ -71,12 +74,20 @@ const goToItem = (suggestion) => {
   activeIndex.value = -1
 }
 
+const toggleSuggestion = (suggestion) => {
+  emit('toggle', suggestion.listId, suggestion.todoId)
+}
+
 const handleSelect = (suggestion) => {
-  runOnce(() => selectSuggestion(suggestion))
+  runOnce(() => selectSuggestion(suggestion), `select-${suggestion.listId}-${suggestion.todoId}`)
 }
 
 const handleGoTo = (suggestion) => {
-  runOnce(() => goToItem(suggestion))
+  runOnce(() => goToItem(suggestion), `goto-${suggestion.listId}-${suggestion.todoId}`)
+}
+
+const handleToggle = (suggestion) => {
+  runOnce(() => toggleSuggestion(suggestion), `toggle-${suggestion.listId}-${suggestion.todoId}`)
 }
 
 const onInput = (e) => {
@@ -183,8 +194,32 @@ const highlight = (text, query) => {
             v-for="(s, i) in visibleSuggestions"
             :key="s.listId + '-' + s.todoId"
             class="dropdown-row"
-            :class="{ active: i === activeIndex }"
+            :class="{ active: i === activeIndex, done: s.done }"
           >
+            <button
+              type="button"
+              class="dropdown-check"
+              :aria-label="s.done ? `Décocher ${s.text}` : `Cocher ${s.text}`"
+              :aria-pressed="s.done"
+              @touchstart.stop="handleToggle(s)"
+              @click.stop="handleToggle(s)"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <rect
+                  class="check-box"
+                  x="1" y="1" width="14" height="14" rx="3"
+                  stroke-width="1.5"
+                />
+                <polyline
+                  v-if="s.done"
+                  class="check-tick"
+                  points="4.5 8.5 7 11 11.5 5.5"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
             <button
               type="button"
               class="dropdown-item"
@@ -308,6 +343,42 @@ const highlight = (text, query) => {
   background: var(--color-border);
 }
 
+.dropdown-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  min-width: 2.5rem;
+  min-height: 2.75rem;
+  padding: 0;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dropdown-check .check-box {
+  stroke: var(--color-border);
+  fill: none;
+  transition: stroke 0.2s;
+}
+
+.dropdown-row:hover .dropdown-check .check-box,
+.dropdown-row.active .dropdown-check .check-box {
+  stroke: var(--color-border-hover);
+}
+
+.dropdown-row.done .dropdown-check .check-box {
+  stroke: var(--accent);
+  opacity: 0.5;
+}
+
+.dropdown-check .check-tick {
+  stroke: var(--accent);
+}
+
 .dropdown-item {
   display: flex;
   align-items: center;
@@ -315,7 +386,7 @@ const highlight = (text, query) => {
   flex: 1;
   min-width: 0;
   min-height: 2.75rem;
-  padding: 0.35rem 0.5rem;
+  padding: 0.35rem 0.35rem 0.35rem 0;
   font-size: 0.85rem;
   font-family: inherit;
   background: none;
@@ -330,6 +401,12 @@ const highlight = (text, query) => {
 .dropdown-row:hover .dropdown-item,
 .dropdown-row.active .dropdown-item {
   color: var(--color-heading);
+}
+
+.dropdown-row.done .dropdown-item {
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, currentColor 80%, transparent);
 }
 
 .dropdown-list-name {
