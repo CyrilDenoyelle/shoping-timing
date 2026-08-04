@@ -178,6 +178,8 @@ onBeforeUnmount(() => {
   padding: 0.35rem 0.5rem 0.65rem;
   background: var(--color-background);
   border-bottom: 1px solid var(--color-border);
+  /* Couche propre : le contenu défile derrière sans repeindre la barre à chaque frame. */
+  transform: translateZ(0);
 }
 
 .list-picker {

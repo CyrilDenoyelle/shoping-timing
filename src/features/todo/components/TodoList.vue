@@ -82,8 +82,38 @@ const cancelEditList = () => {
 
 const draggedIndex = ref(null)
 const dragOverIndex = ref(null)
+/** Index armé au pointerdown sur la poignée — évite draggable=true permanent (jank scroll mobile). */
+const listDragArmedIndex = ref(null)
+
+const setSectionDraggable = (index, enabled) => {
+  const sections = document.querySelectorAll('.lists > .section[data-list-id]')
+  const el = sections[index]
+  if (el) el.draggable = enabled
+}
+
+const armListDrag = (index, e) => {
+  if (isDraggingTodo()) return
+  listDragArmedIndex.value = index
+  // Sync avant le prochain event du geste — le binding Vue est trop tardif pour dragstart.
+  e.currentTarget.closest('section')?.setAttribute('draggable', 'true')
+}
+
+const disarmListDrag = () => {
+  if (listDragArmedIndex.value !== null) {
+    setSectionDraggable(listDragArmedIndex.value, false)
+  }
+  listDragArmedIndex.value = null
+}
+
+const onHandlePointerUp = () => {
+  if (draggedIndex.value === null) disarmListDrag()
+}
 
 const onDragStart = (index, e) => {
+  if (listDragArmedIndex.value !== index) {
+    e.preventDefault()
+    return
+  }
   draggedIndex.value = index
   e.dataTransfer.effectAllowed = 'move'
   e.dataTransfer.setData('text/plain', String(index))
@@ -105,11 +135,13 @@ const onDrop = (index) => {
   }
   draggedIndex.value = null
   dragOverIndex.value = null
+  disarmListDrag()
 }
 
 const onDragEnd = () => {
   draggedIndex.value = null
   dragOverIndex.value = null
+  disarmListDrag()
 }
 
 const scrollToTodo = async (listId, todoId) => {
@@ -327,7 +359,7 @@ const onShoppingDragEnd = () => {
         'drag-over': dragOverIndex === index && draggedIndex !== index,
         'list-todo-drop': dragOverListZone === list.id,
       }"
-      :draggable="!isDraggingTodo()"
+      :draggable="listDragArmedIndex === index"
       @dragstart="onDragStart(index, $event)"
       @dragover="onDragOver(index, $event)"
       @dragleave="onDragLeave"
@@ -335,7 +367,13 @@ const onShoppingDragEnd = () => {
       @dragend="onDragEnd"
     >
       <div class="section-header">
-        <span class="drag-handle" aria-label="Glisser pour réordonner">⠿</span>
+        <span
+          class="drag-handle"
+          aria-label="Glisser pour réordonner"
+          @pointerdown="armListDrag(index, $event)"
+          @pointerup="onHandlePointerUp"
+          @pointercancel="onHandlePointerUp"
+        >⠿</span>
         <input
           v-if="editingListId === list.id"
           ref="editInputRef"
@@ -432,6 +470,7 @@ const onShoppingDragEnd = () => {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  touch-action: pan-y;
 }
 
 .section {
@@ -440,6 +479,7 @@ const onShoppingDragEnd = () => {
   padding: 0.5rem;
   margin: -0.5rem;
   transition: opacity 0.25s, box-shadow 0.25s, background 0.25s;
+  touch-action: pan-y;
 }
 
 .shopping-section {
@@ -470,6 +510,7 @@ const onShoppingDragEnd = () => {
 .drag-handle {
   cursor: grab;
   user-select: none;
+  touch-action: none;
   font-size: 1rem;
   line-height: 1;
   color: var(--color-text-muted);
@@ -631,6 +672,8 @@ const onShoppingDragEnd = () => {
 
 [draggable="true"] {
   cursor: grab;
+  /* Priorise le scroll vertical tactile ; le DnD souris reste disponible. */
+  touch-action: pan-y;
 }
 
 [draggable="true"]:active {

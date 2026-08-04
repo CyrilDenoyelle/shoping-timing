@@ -23,6 +23,7 @@ const HIGHLIGHT_ATTR = 'data-quick-add-target'
 let layoutCache = null
 let resizeObserver = null
 let highlightedListId = null
+let highlightedEl = null
 
 function getSections() {
   return [...document.querySelectorAll('[data-list-id]')]
@@ -63,12 +64,19 @@ function buildLayoutCache(sections, scrollY, viewportH) {
   const bounds = sections.map((section) => {
     const rect = section.getBoundingClientRect()
     const top = rect.top + scrollY
-    return { id: section.dataset.listId, top, span: rect.height }
+    return { id: section.dataset.listId, top, span: rect.height, el: section }
   })
+
+  const maxScroll = Math.max(0, document.documentElement.scrollHeight - viewportH)
+  const readingTop = measureReadingTop()
+  const readingHeight = Math.max(0, viewportH - readingTop)
 
   layoutCache = {
     bounds,
     viewportH,
+    maxScroll,
+    readingTop,
+    readingHeight,
   }
   observeSections(sections)
   return layoutCache
@@ -76,31 +84,23 @@ function buildLayoutCache(sections, scrollY, viewportH) {
 
 /**
  * Mesure la pile de listes.
- * Les positions document (top, span) sont mises en cache ; seuls scrollY et readingTop
- * sont relus à chaque frame de scroll.
+ * En cache hit, seul scrollY est relu — pas de getBoundingClientRect / scrollHeight.
  */
 export function measureListLayout({ force = false } = {}) {
   const scrollY = window.scrollY
-  const viewportH = window.innerHeight
-  const maxScroll = Math.max(
-    0,
-    document.documentElement.scrollHeight - viewportH,
-  )
-  const readingTop = measureReadingTop()
-  const readingHeight = Math.max(0, viewportH - readingTop)
 
   if (!force && layoutCache?.bounds?.length) {
-    return { ...layoutCache, maxScroll, readingTop, readingHeight }
+    return layoutCache
   }
 
+  const viewportH = window.innerHeight
   const sections = getSections()
   if (!sections.length) {
     layoutCache = null
     return null
   }
 
-  const cached = buildLayoutCache(sections, scrollY, viewportH)
-  return { ...cached, maxScroll, readingTop, readingHeight }
+  return buildLayoutCache(sections, scrollY, viewportH)
 }
 
 /** Point visé dans une section : t=0 → haut, t=1 → bas. */
@@ -219,37 +219,79 @@ export function scrollToList(listId, onDone) {
   const fallback = setTimeout(finish, 600)
 }
 
+function findSectionEl(id) {
+  const cached = layoutCache?.bounds?.find((b) => b.id === id)?.el
+  if (cached?.isConnected) return cached
+  return document.querySelector(`[data-list-id="${id}"]`)
+}
+
 function updateSectionHighlight(id) {
   if (highlightedListId === id) return
-  if (highlightedListId) {
+  if (highlightedEl?.isConnected) {
+    highlightedEl.removeAttribute(HIGHLIGHT_ATTR)
+  } else if (highlightedListId) {
     document
       .querySelector(`[data-list-id="${highlightedListId}"]`)
       ?.removeAttribute(HIGHLIGHT_ATTR)
   }
   highlightedListId = id
-  if (id) {
-    document.querySelector(`[data-list-id="${id}"]`)?.setAttribute(HIGHLIGHT_ATTR, '')
-  }
+  highlightedEl = id ? findSectionEl(id) : null
+  highlightedEl?.setAttribute(HIGHLIGHT_ATTR, '')
 }
 
 function clearSectionHighlight() {
   if (!highlightedListId) return
-  document
-    .querySelector(`[data-list-id="${highlightedListId}"]`)
-    ?.removeAttribute(HIGHLIGHT_ATTR)
+  if (highlightedEl?.isConnected) {
+    highlightedEl.removeAttribute(HIGHLIGHT_ATTR)
+  } else {
+    document
+      .querySelector(`[data-list-id="${highlightedListId}"]`)
+      ?.removeAttribute(HIGHLIGHT_ATTR)
+  }
   highlightedListId = null
+  highlightedEl = null
 }
 
 export function useScrollListPicker(selectedListId, { isPaused = () => false, onScrollStart } = {}) {
-  const sync = ({ forceLayout = false } = {}) => {
+  let pendingId = null
+  let commitTimer = null
+
+  const commitSelectedId = (id) => {
+    if (id && id !== selectedListId.value) {
+      selectedListId.value = id
+    }
+  }
+
+  const sync = ({ forceLayout = false, immediate = false } = {}) => {
     if (forceLayout) invalidateLayout()
     if (!isPaused()) {
       const id = listIdFromScrollPosition()
-      if (id && id !== selectedListId.value) {
-        selectedListId.value = id
+      if (id) {
+        updateSectionHighlight(id)
+        if (immediate) {
+          clearTimeout(commitTimer)
+          commitTimer = null
+          pendingId = null
+          commitSelectedId(id)
+        } else if (id !== selectedListId.value && id !== pendingId) {
+          pendingId = id
+          clearTimeout(commitTimer)
+          // Diffère le commit Vue : le highlight DOM reste immédiat, le label sticky
+          // ne se met à jour qu'après une courte pause (évite re-renders en rafale).
+          commitTimer = setTimeout(() => {
+            commitTimer = null
+            const next = pendingId
+            pendingId = null
+            commitSelectedId(next)
+          }, 80)
+        }
       }
+    } else {
+      clearTimeout(commitTimer)
+      commitTimer = null
+      pendingId = null
+      updateSectionHighlight(selectedListId.value)
     }
-    updateSectionHighlight(selectedListId.value)
   }
 
   let ticking = false
@@ -269,7 +311,7 @@ export function useScrollListPicker(selectedListId, { isPaused = () => false, on
   }
 
   onMounted(() => {
-    sync({ forceLayout: true })
+    sync({ forceLayout: true, immediate: true })
     window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('resize', onResize, { passive: true })
   })
@@ -277,13 +319,14 @@ export function useScrollListPicker(selectedListId, { isPaused = () => false, on
   onBeforeUnmount(() => {
     window.removeEventListener('scroll', onScroll)
     window.removeEventListener('resize', onResize)
+    clearTimeout(commitTimer)
     resizeObserver?.disconnect()
     resizeObserver = null
     clearSectionHighlight()
   })
 
   return {
-    sync,
+    sync: (opts) => sync({ ...opts, immediate: true }),
     invalidateLayout,
     updateHighlight: () => updateSectionHighlight(selectedListId.value),
   }
