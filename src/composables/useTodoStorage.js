@@ -69,19 +69,30 @@ export function useTodoStorage(storage = defaultStorage) {
     }
   }
 
-  const persistLists = debounce((newLists) => saveListsToStorage(newLists, storage), 300)
+  // Debounce batches rapid deep-watch churn; lifecycle hooks below force a durable write
+  // when the tab is backgrounded (mobile WebViews often defer localStorage disk sync).
+  const persistLists = debounce(() => saveListsToStorage(lists.value, storage), 300)
 
-  flushListsPersist = () => persistLists.flush()
+  flushListsPersist = () => {
+    persistLists.cancel()
+    saveListsToStorage(lists.value, storage)
+    saveShoppingOrder(shoppingOrder.value, storage)
+  }
   if (!pageHideRegistered) {
-    window.addEventListener('pagehide', () => flushListsPersist?.())
+    const onBackground = () => flushListsPersist?.()
+    window.addEventListener('pagehide', onBackground)
+    window.addEventListener('freeze', onBackground)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') onBackground()
+    })
     pageHideRegistered = true
   }
 
   watch(
     lists,
-    (newLists) => {
+    () => {
       syncShoppingOrder()
-      persistLists(newLists)
+      persistLists()
     },
     { deep: true, immediate: true },
   )

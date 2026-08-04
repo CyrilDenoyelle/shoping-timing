@@ -20,5 +20,12 @@ export function debounce(fn, ms) {
     lastArgs = null
   }
 
+  debounced.cancel = () => {
+    if (timer == null) return
+    clearTimeout(timer)
+    timer = null
+    lastArgs = null
+  }
+
   return debounced
 }
