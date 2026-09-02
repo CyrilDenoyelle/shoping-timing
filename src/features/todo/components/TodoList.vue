@@ -12,16 +12,10 @@ import TodoItem from './TodoItem.vue'
 import QuickAddTodo from './QuickAddTodo.vue'
 import IconTrash from '@/components/ui/icons/IconTrash.vue'
 import { useTodoStorage } from '@/composables/useTodoStorage'
-import {
-  invalidateLayout,
-  setListBoundsProvider,
-  setListScrollFn,
-  rebindSectionHighlight,
-} from '@/composables/useScrollListPicker'
+import { useSelectedList } from '@/composables/useSelectedList'
 import {
   buildVirtualRows,
   estimateRowSize,
-  listBoundsFromMeasurements,
   findTodoRowIndex,
   findListHeaderRowIndex,
 } from '@/utils/todo/virtualRows.js'
@@ -71,7 +65,13 @@ const virtualRows = computed(() =>
   }),
 )
 
-const visibleListIds = computed(() => displayLists.value.map((l) => l.id))
+const { selectedListId, selectList, ensureValidSelection } = useSelectedList()
+
+watch(
+  lists,
+  (value) => ensureValidSelection(value),
+  { deep: true, immediate: true },
+)
 
 const updateParentOffset = () => {
   parentOffsetRef.value = listParentRef.value?.offsetTop ?? 0
@@ -80,7 +80,7 @@ const updateParentOffset = () => {
 const virtualizerOptions = computed(() => ({
   count: virtualRows.value.length,
   estimateSize: (index) => estimateRowSize(virtualRows.value[index] ?? { type: 'todo' }),
-  overscan: 10,
+  overscan: 6,
   scrollMargin: parentOffsetRef.value,
   scrollPaddingStart: 72,
   getItemKey: (index) => virtualRows.value[index]?.key ?? index,
@@ -88,54 +88,70 @@ const virtualizerOptions = computed(() => ({
 
 const virtualizer = useWindowVirtualizer(virtualizerOptions)
 
-const virtualItems = computed(() => virtualizer.value.getVirtualItems())
 const totalSize = computed(() => virtualizer.value.getTotalSize())
-const scrollMargin = computed(
-  () => virtualizer.value.options.scrollMargin ?? parentOffsetRef.value,
-)
+
+/** Lignes montées, avec leur décalage déjà résolu : une seule expression par ligne. */
+const visibleRows = computed(() => {
+  const rows = virtualRows.value
+  const margin = virtualizer.value.options.scrollMargin ?? 0
+  return virtualizer.value
+    .getVirtualItems()
+    .map((item) => ({
+      key: item.key,
+      index: item.index,
+      offset: item.start - margin,
+      row: rows[item.index],
+    }))
+    .filter((item) => item.row)
+})
+
+// Vue rappelle les refs fonction à chaque patch : sans ce filtre, chaque frame de
+// scroll relancerait une mesure (donc un reflow) par ligne visible. TanStack
+// observe l'élément dès la première mesure, les hauteurs dynamiques suivent.
+let measuredIndexes = new WeakMap()
 
 const measureRow = (el) => {
   if (!el) return
+  const index = Number(el.dataset.index)
+  if (measuredIndexes.get(el) === index) return
+  measuredIndexes.set(el, index)
   virtualizer.value.measureElement(el)
-  if (el.getAttribute('data-row-type') === 'list-header') {
-    rebindSectionHighlight()
-  }
 }
 
-setListBoundsProvider(() => {
-  const rows = virtualRows.value
-  const measurements = virtualizer.value.measurementsCache
-  if (!rows.length || !measurements?.length) return null
-  const bounds = listBoundsFromMeasurements(rows, measurements)
-  return bounds.length ? bounds : null
-})
+// Handlers stables par tâche : des fonctions recréées à chaque render feraient
+// re-rendre tous les TodoItem montés à chaque frame de scroll.
+const todoActionCache = new Map()
 
-setListScrollFn((listId, onDone) => {
+const todoActions = (listId, todoId) => {
+  const key = `${listId}:${todoId}`
+  let actions = todoActionCache.get(key)
+  if (!actions) {
+    actions = {
+      onToggle: () => toggleTodo(listId, todoId),
+      onRemove: () => removeTodo(listId, todoId),
+      onRename: (id, text) => renameTodo(listId, id, text),
+      onSetQuantity: (qty) => setQuantity(listId, todoId, qty),
+      onSetUnit: (unit, factor, newQty) => setUnit(listId, todoId, unit, factor, newQty),
+      onUndo: () => undoTodoAction(listId, todoId),
+      onRedo: () => redoTodoAction(listId, todoId),
+    }
+    todoActionCache.set(key, actions)
+  }
+  return actions
+}
+
+const goToList = (listId) => {
   const index = findListHeaderRowIndex(virtualRows.value, listId)
-  if (index < 0) {
-    onDone?.()
-    return
-  }
+  if (index < 0) return
   virtualizer.value.scrollToIndex(index, { align: 'start', behavior: 'smooth' })
-  if (!onDone) return
-  let done = false
-  const finish = () => {
-    if (done) return
-    done = true
-    window.removeEventListener('scrollend', finish)
-    clearTimeout(fallback)
-    onDone()
-  }
-  window.addEventListener('scrollend', finish, { once: true })
-  const fallback = setTimeout(finish, 600)
-})
+}
 
 watch(
-  [virtualRows, totalSize, parentOffsetRef],
+  [virtualRows, totalSize],
   async () => {
     await nextTick()
     updateParentOffset()
-    invalidateLayout()
+    if (todoActionCache.size > 800) todoActionCache.clear()
   },
   { flush: 'post' },
 )
@@ -453,20 +469,18 @@ const onShoppingDragEnd = () => {
 
 const onResize = () => {
   updateParentOffset()
+  // measure() repart des estimations : les lignes montées doivent être remesurées.
+  measuredIndexes = new WeakMap()
   virtualizer.value.measure()
-  invalidateLayout()
 }
 
 onMounted(() => {
   updateParentOffset()
-  invalidateLayout()
   window.addEventListener('resize', onResize, { passive: true })
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
-  setListBoundsProvider(null)
-  setListScrollFn(null)
 })
 </script>
 
@@ -474,11 +488,11 @@ onBeforeUnmount(() => {
   <div class="lists">
     <QuickAddTodo
       :lists="lists"
-      :visible-list-ids="visibleListIds"
       :suggestions="allTodoTexts"
       @add="(listId, text) => addTodo(listId, text)"
       @navigate="scrollToTodo"
       @toggle="(listId, todoId) => toggleTodo(listId, todoId)"
+      @go-to-list="goToList"
     />
 
     <div
@@ -487,96 +501,84 @@ onBeforeUnmount(() => {
       :style="{ height: `${totalSize}px` }"
     >
       <div
-        v-for="vItem in virtualItems"
-        :key="virtualRows[vItem.index]?.key ?? vItem.key"
+        v-for="item in visibleRows"
+        :key="item.key"
         :ref="measureRow"
         class="v-row"
-        :data-index="vItem.index"
-        :data-row-type="virtualRows[vItem.index]?.type"
-        :style="{
-          transform: `translateY(${vItem.start - scrollMargin}px)`,
-        }"
+        :data-index="item.index"
+        :data-row-type="item.row.type"
+        :style="{ transform: `translateY(${item.offset}px)` }"
       >
-        <template v-if="virtualRows[vItem.index]?.type === 'shopping-todo'">
-          <div
-            class="todo-row"
-            :data-todo-id="virtualRows[vItem.index].todo.listId + '-' + virtualRows[vItem.index].todo.id"
-            :draggable="shoppingDragArmedIndex === virtualRows[vItem.index].shoppingIndex"
-            :class="{
-              'todo-dragging':
-                shoppingManualSort &&
-                draggedShoppingIndex === virtualRows[vItem.index].shoppingIndex,
-              'todo-drag-before':
-                shoppingManualSort &&
-                dragOverShoppingKey === virtualRows[vItem.index].shoppingIndex &&
-                dragOverShoppingHalf === 'before' &&
-                draggedShoppingIndex !== virtualRows[vItem.index].shoppingIndex,
-              'todo-drag-after':
-                shoppingManualSort &&
-                dragOverShoppingKey === virtualRows[vItem.index].shoppingIndex &&
-                dragOverShoppingHalf === 'after' &&
-                draggedShoppingIndex !== virtualRows[vItem.index].shoppingIndex,
-            }"
-            @pointerdown="armShoppingDrag(virtualRows[vItem.index].shoppingIndex, $event)"
-            @pointerup="onTodoPointerUp"
-            @pointercancel="onTodoPointerUp"
-            @dragstart="onShoppingDragStart(virtualRows[vItem.index].shoppingIndex, $event)"
-            @dragover="onShoppingDragOver(virtualRows[vItem.index].shoppingIndex, $event)"
-            @dragleave="onShoppingDragLeave($event)"
-            @drop="onShoppingDrop(virtualRows[vItem.index].shoppingIndex, $event)"
-            @dragend="onShoppingDragEnd"
-          >
-            <TodoItem
-              :todo="virtualRows[vItem.index].todo"
-              :shopping-mode="true"
-              :reorderable="shoppingManualSort"
-              :can-undo="canUndoTodo(virtualRows[vItem.index].todo.id)"
-              :can-redo="canRedoTodo(virtualRows[vItem.index].todo.id)"
-              @toggle="toggleTodo(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id)"
-              @remove="removeTodo(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id)"
-              @rename="(id, text) => renameTodo(virtualRows[vItem.index].todo.listId, id, text)"
-              @set-quantity="(qty) => setQuantity(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id, qty)"
-              @set-unit="(unit, factor, newQty) => setUnit(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id, unit, factor, newQty)"
-              @undo="undoTodoAction(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id)"
-              @redo="redoTodoAction(virtualRows[vItem.index].todo.listId, virtualRows[vItem.index].todo.id)"
-            />
-          </div>
-        </template>
-
         <div
-          v-else-if="virtualRows[vItem.index]?.type === 'shopping-end'"
-          class="shopping-end"
-        />
-
-        <div
-          v-else-if="virtualRows[vItem.index]?.type === 'list-header'"
-          class="section-header-row"
-          :data-list-id="virtualRows[vItem.index].listId"
+          v-if="item.row.type === 'shopping-todo'"
+          class="todo-row"
+          :data-todo-id="item.row.listId + '-' + item.row.todo.id"
+          :draggable="shoppingDragArmedIndex === item.row.shoppingIndex"
           :class="{
-            'is-first': virtualRows[vItem.index].isFirstList,
-            'is-dragging': draggedIndex === virtualRows[vItem.index].listIndex,
-            'drag-over':
-              dragOverIndex === virtualRows[vItem.index].listIndex &&
-              draggedIndex !== virtualRows[vItem.index].listIndex,
-            'list-todo-drop': dragOverListZone === virtualRows[vItem.index].listId,
+            'todo-dragging':
+              shoppingManualSort && draggedShoppingIndex === item.row.shoppingIndex,
+            'todo-drag-before':
+              shoppingManualSort &&
+              dragOverShoppingKey === item.row.shoppingIndex &&
+              dragOverShoppingHalf === 'before' &&
+              draggedShoppingIndex !== item.row.shoppingIndex,
+            'todo-drag-after':
+              shoppingManualSort &&
+              dragOverShoppingKey === item.row.shoppingIndex &&
+              dragOverShoppingHalf === 'after' &&
+              draggedShoppingIndex !== item.row.shoppingIndex,
           }"
-          :draggable="listDragArmedIndex === virtualRows[vItem.index].listIndex"
-          @dragstart="onDragStart(virtualRows[vItem.index].listIndex, $event)"
-          @dragover="onDragOver(virtualRows[vItem.index].listIndex, $event)"
+          @pointerdown="armShoppingDrag(item.row.shoppingIndex, $event)"
+          @pointerup="onTodoPointerUp"
+          @pointercancel="onTodoPointerUp"
+          @dragstart="onShoppingDragStart(item.row.shoppingIndex, $event)"
+          @dragover="onShoppingDragOver(item.row.shoppingIndex, $event)"
+          @dragleave="onShoppingDragLeave($event)"
+          @drop="onShoppingDrop(item.row.shoppingIndex, $event)"
+          @dragend="onShoppingDragEnd"
+        >
+          <TodoItem
+            :todo="item.row.todo"
+            :shopping-mode="true"
+            :reorderable="shoppingManualSort"
+            :can-undo="canUndoTodo(item.row.todo.id)"
+            :can-redo="canRedoTodo(item.row.todo.id)"
+            v-bind="todoActions(item.row.listId, item.row.todo.id)"
+          />
+        </div>
+
+        <div v-else-if="item.row.type === 'shopping-end'" class="shopping-end" />
+
+        <div
+          v-else-if="item.row.type === 'list-header'"
+          class="section-header-row"
+          :data-list-id="item.row.listId"
+          :class="{
+            'is-first': item.row.isFirstList,
+            'is-target': selectedListId === item.row.listId,
+            'is-dragging': draggedIndex === item.row.listIndex,
+            'drag-over':
+              dragOverIndex === item.row.listIndex && draggedIndex !== item.row.listIndex,
+            'list-todo-drop': dragOverListZone === item.row.listId,
+          }"
+          :draggable="listDragArmedIndex === item.row.listIndex"
+          @click="selectList(item.row.listId)"
+          @dragstart="onDragStart(item.row.listIndex, $event)"
+          @dragover="onDragOver(item.row.listIndex, $event)"
           @dragleave="onDragLeave"
-          @drop="onDrop(virtualRows[vItem.index].listIndex)"
+          @drop="onDrop(item.row.listIndex)"
           @dragend="onDragEnd"
         >
           <div class="section-header">
             <span
               class="drag-handle"
               aria-label="Glisser pour réordonner"
-              @pointerdown="armListDrag(virtualRows[vItem.index].listIndex, $event)"
+              @pointerdown="armListDrag(item.row.listIndex, $event)"
               @pointerup="onHandlePointerUp"
               @pointercancel="onHandlePointerUp"
             >⠿</span>
             <input
-              v-if="editingListId === virtualRows[vItem.index].listId"
+              v-if="editingListId === item.row.listId"
               ref="editInputRef"
               v-model="editingName"
               type="text"
@@ -585,18 +587,15 @@ onBeforeUnmount(() => {
               @keydown.enter="saveEditList"
               @keydown.escape="cancelEditList"
             />
-            <h2
-              v-else
-              class="title"
-              @dblclick="startEditList(virtualRows[vItem.index].list)"
-            >
-              {{ virtualRows[vItem.index].list.name }}
+            <h2 v-else class="title" @dblclick="startEditList(item.row.list)">
+              {{ item.row.list.name }}
             </h2>
             <button
-              v-if="editingListId === virtualRows[vItem.index].listId && displayLists.length > 1"
+              v-if="editingListId === item.row.listId && displayLists.length > 1"
               class="delete-list"
               aria-label="Supprimer la liste"
-              @mousedown.prevent.stop="removeList(virtualRows[vItem.index].listId)"
+              @click.stop
+              @mousedown.prevent.stop="removeList(item.row.listId)"
             >
               <IconTrash />
             </button>
@@ -604,69 +603,60 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          v-else-if="virtualRows[vItem.index]?.type === 'list-empty'"
+          v-else-if="item.row.type === 'list-empty'"
           class="items--empty-drop"
-          :class="{ 'list-todo-drop': dragOverListZone === virtualRows[vItem.index].listId }"
-          @dragover="onListZoneDragOver(virtualRows[vItem.index].listId, $event)"
+          :class="{ 'list-todo-drop': dragOverListZone === item.row.listId }"
+          @dragover="onListZoneDragOver(item.row.listId, $event)"
           @dragleave="onListZoneDragLeave"
-          @drop="onListZoneDrop(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoCount, $event)"
+          @drop="onListZoneDrop(item.row.listId, item.row.todoCount, $event)"
         />
 
-        <template v-else-if="virtualRows[vItem.index]?.type === 'todo'">
-          <div
-            class="todo-row"
-            :data-todo-id="virtualRows[vItem.index].listId + '-' + virtualRows[vItem.index].todo.id"
-            :draggable="todoDragArmedKey === virtualRows[vItem.index].listId + '-' + virtualRows[vItem.index].todoIndex"
-            :class="{
-              'todo-dragging':
-                manualSort &&
-                draggedTodoListId === virtualRows[vItem.index].listId &&
-                draggedTodoIndex === virtualRows[vItem.index].todoIndex,
-              'todo-drag-before':
-                dragOverTodoKey ===
-                  virtualRows[vItem.index].listId + '-' + virtualRows[vItem.index].todoIndex &&
-                dragOverHalf === 'before' &&
-                !(
-                  draggedTodoListId === virtualRows[vItem.index].listId &&
-                  draggedTodoIndex === virtualRows[vItem.index].todoIndex
-                ),
-              'todo-drag-after':
-                dragOverTodoKey ===
-                  virtualRows[vItem.index].listId + '-' + virtualRows[vItem.index].todoIndex &&
-                dragOverHalf === 'after' &&
-                !(
-                  draggedTodoListId === virtualRows[vItem.index].listId &&
-                  draggedTodoIndex === virtualRows[vItem.index].todoIndex
-                ),
-            }"
-            @pointerdown="armTodoDrag(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoIndex, $event)"
-            @pointerup="onTodoPointerUp"
-            @pointercancel="onTodoPointerUp"
-            @dragstart="onTodoDragStart(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoIndex, $event)"
-            @dragover="onTodoDragOver(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoIndex, $event)"
-            @dragleave="onTodoDragLeave($event)"
-            @drop="onTodoDrop(virtualRows[vItem.index].listId, virtualRows[vItem.index].todoIndex, $event)"
-            @dragend="onTodoDragEnd"
-          >
-            <TodoItem
-              :todo="virtualRows[vItem.index].todo"
-              :compact="virtualRows[vItem.index].compact"
-              :shopping-mode="shoppingMode"
-              :reorderable="manualSort"
-              :can-undo="canUndoTodo(virtualRows[vItem.index].todo.id)"
-              :can-redo="canRedoTodo(virtualRows[vItem.index].todo.id)"
-              @toggle="toggleTodo(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id)"
-              @remove="removeTodo(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id)"
-              @rename="(id, text) => renameTodo(virtualRows[vItem.index].listId, id, text)"
-              @set-quantity="(qty) => setQuantity(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id, qty)"
-              @set-unit="(unit, factor, newQty) => setUnit(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id, unit, factor, newQty)"
-              @undo="undoTodoAction(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id)"
-              @redo="redoTodoAction(virtualRows[vItem.index].listId, virtualRows[vItem.index].todo.id)"
-            />
-          </div>
-        </template>
+        <div
+          v-else-if="item.row.type === 'todo'"
+          class="todo-row"
+          :data-todo-id="item.row.listId + '-' + item.row.todo.id"
+          :draggable="todoDragArmedKey === item.row.listId + '-' + item.row.todoIndex"
+          :class="{
+            'todo-dragging':
+              manualSort &&
+              draggedTodoListId === item.row.listId &&
+              draggedTodoIndex === item.row.todoIndex,
+            'todo-drag-before':
+              dragOverTodoKey === item.row.listId + '-' + item.row.todoIndex &&
+              dragOverHalf === 'before' &&
+              !(
+                draggedTodoListId === item.row.listId &&
+                draggedTodoIndex === item.row.todoIndex
+              ),
+            'todo-drag-after':
+              dragOverTodoKey === item.row.listId + '-' + item.row.todoIndex &&
+              dragOverHalf === 'after' &&
+              !(
+                draggedTodoListId === item.row.listId &&
+                draggedTodoIndex === item.row.todoIndex
+              ),
+          }"
+          @pointerdown="armTodoDrag(item.row.listId, item.row.todoIndex, $event)"
+          @pointerup="onTodoPointerUp"
+          @pointercancel="onTodoPointerUp"
+          @dragstart="onTodoDragStart(item.row.listId, item.row.todoIndex, $event)"
+          @dragover="onTodoDragOver(item.row.listId, item.row.todoIndex, $event)"
+          @dragleave="onTodoDragLeave($event)"
+          @drop="onTodoDrop(item.row.listId, item.row.todoIndex, $event)"
+          @dragend="onTodoDragEnd"
+        >
+          <TodoItem
+            :todo="item.row.todo"
+            :compact="item.row.compact"
+            :shopping-mode="shoppingMode"
+            :reorderable="manualSort"
+            :can-undo="canUndoTodo(item.row.todo.id)"
+            :can-redo="canRedoTodo(item.row.todo.id)"
+            v-bind="todoActions(item.row.listId, item.row.todo.id)"
+          />
+        </div>
 
-        <div v-else-if="virtualRows[vItem.index]?.type === 'add-list'" class="add-section">
+        <div v-else-if="item.row.type === 'add-list'" class="add-section">
           <div v-if="showNewList" class="new-form">
             <input
               ref="newListInputRef"
@@ -710,6 +700,7 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   padding: 0.5rem 0.5rem 0.25rem;
   margin: 0 -0.5rem;
+  cursor: pointer;
   transition: opacity 0.25s, box-shadow 0.25s, background 0.25s;
 }
 
@@ -731,7 +722,7 @@ onBeforeUnmount(() => {
   box-shadow: 0 -2px 0 0 var(--accent);
 }
 
-.section-header-row[data-quick-add-target] .title {
+.section-header-row.is-target .title {
   color: var(--accent);
 }
 

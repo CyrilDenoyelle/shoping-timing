@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   buildVirtualRows,
   estimateRowSize,
-  listBoundsFromMeasurements,
   findTodoRowIndex,
   findListHeaderRowIndex,
 } from '@/utils/todo/virtualRows.js'
@@ -51,28 +50,6 @@ describe('buildVirtualRows', () => {
     expect(rows[2].type).toBe('list-header')
     expect(rows[2].isFirstList).toBe(false)
     expect(rows[3].compact).toBe(true)
-  })
-})
-
-describe('listBoundsFromMeasurements', () => {
-  it('spans each list from header through its todos', () => {
-    const rows = buildVirtualRows({
-      displayLists: [
-        { id: 'a', name: 'A', displayTodos: [{ id: 1, text: 'one' }] },
-        { id: 'b', name: 'B', displayTodos: [{ id: 2, text: 'two' }] },
-      ],
-    })
-    const measurements = [
-      { index: 0, start: 100, size: 40, end: 140 },
-      { index: 1, start: 140, size: 44, end: 184 },
-      { index: 2, start: 184, size: 40, end: 224 },
-      { index: 3, start: 224, size: 44, end: 268 },
-      { index: 4, start: 268, size: 56, end: 324 },
-    ]
-    expect(listBoundsFromMeasurements(rows, measurements)).toEqual([
-      { id: 'a', top: 100, span: 84 },
-      { id: 'b', top: 184, span: 84 },
-    ])
   })
 })
 

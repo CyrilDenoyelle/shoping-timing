@@ -1,61 +1,19 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import TodoInput from './TodoInput.vue'
-import { STORAGE_KEYS, defaultStorage } from '@/services/storage'
-import { useScrollListPicker, scrollToList } from '@/composables/useScrollListPicker'
+import { useSelectedList } from '@/composables/useSelectedList'
 
 const props = defineProps({
   lists: { type: Array, required: true },
-  visibleListIds: { type: Array, default: () => [] },
   suggestions: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['add', 'navigate', 'toggle'])
+const emit = defineEmits(['add', 'navigate', 'toggle', 'go-to-list'])
 
-const selectedListId = ref(null)
+const { selectedListId, selectList } = useSelectedList()
 
-const readStoredListId = () =>
-  defaultStorage.getString(STORAGE_KEYS.QUICK_ADD_LIST)
-
-const resolveListId = (lists) => {
-  const stored = readStoredListId()
-  if (stored && lists.some((l) => l.id === stored)) return stored
-  return lists[0]?.id ?? null
-}
-
-if (selectedListId.value == null) {
-  selectedListId.value = resolveListId(props.lists)
-}
 const dropdownOpen = ref(false)
-const userPinned = ref(false)
-const scrollingToList = ref(false)
 const pickerRef = ref(null)
-
-const { sync: syncFromScroll, invalidateLayout, updateHighlight } = useScrollListPicker(selectedListId, {
-  isPaused: () => dropdownOpen.value || userPinned.value,
-  onScrollStart: () => {
-    if (!scrollingToList.value) userPinned.value = false
-  },
-})
-
-watch(
-  () => props.lists,
-  (newLists) => {
-    if (!newLists.some((l) => l.id === selectedListId.value)) {
-      selectedListId.value = resolveListId(newLists)
-    }
-  },
-  { deep: true },
-)
-
-let storageTimer = null
-watch(selectedListId, (id) => {
-  if (!id) return
-  clearTimeout(storageTimer)
-  storageTimer = setTimeout(() => {
-    defaultStorage.setString(STORAGE_KEYS.QUICK_ADD_LIST, id)
-  }, 400)
-})
 
 const selectedListName = computed(
   () => props.lists.find((l) => l.id === selectedListId.value)?.name ?? 'Liste',
@@ -65,15 +23,10 @@ const toggleDropdown = () => {
   dropdownOpen.value = !dropdownOpen.value
 }
 
-const selectList = (id) => {
-  userPinned.value = true
-  selectedListId.value = id
-  updateHighlight()
+const pickList = (id) => {
+  selectList(id)
   dropdownOpen.value = false
-  scrollingToList.value = true
-  scrollToList(id, () => {
-    scrollingToList.value = false
-  })
+  emit('go-to-list', id)
 }
 
 const onAdd = (text) => {
@@ -88,24 +41,12 @@ const onDocumentPointerDown = (e) => {
   }
 }
 
-watch(
-  () => props.visibleListIds,
-  async () => {
-    invalidateLayout()
-    await nextTick()
-    syncFromScroll({ forceLayout: true })
-  },
-)
-
 onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onDocumentPointerDown)
-  clearTimeout(storageTimer)
-})
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointerDown))
 </script>
 
 <template>
-  <div class="quick-add" data-scroll-list-picker-anchor>
+  <div class="quick-add">
     <div ref="pickerRef" class="list-picker">
       <button
         type="button"
@@ -147,7 +88,7 @@ onBeforeUnmount(() => {
               type="button"
               class="list-picker-option"
               :class="{ active: list.id === selectedListId }"
-              @click.stop="selectList(list.id)"
+              @click.stop="pickList(list.id)"
             >
               {{ list.name }}
             </button>

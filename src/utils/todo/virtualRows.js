@@ -16,6 +16,7 @@ export function buildVirtualRows({
       rows.push({
         type: 'shopping-todo',
         key: `s-${todo.listId}-${todo.id}`,
+        listId: todo.listId,
         todo,
         shoppingIndex: si,
       })
@@ -81,45 +82,6 @@ export function estimateRowSize(row) {
     default:
       return 44
   }
-}
-
-/**
- * Bounds document des listes à partir des mesures TanStack.
- * Avec scrollMargin = offsetTop du conteneur, measurement.start ≈ Y document.
- */
-export function listBoundsFromMeasurements(rows, measurements) {
-  const bounds = []
-  if (!measurements?.length) return bounds
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    if (row.type !== 'list-header') continue
-    const m = measurements[i]
-    if (!m) continue
-
-    let end = m.end
-    for (let j = i + 1; j < rows.length; j++) {
-      const next = rows[j]
-      if (
-        next.type === 'list-header' ||
-        next.type === 'add-list' ||
-        next.type === 'shopping-todo' ||
-        next.type === 'shopping-end'
-      ) {
-        break
-      }
-      const mj = measurements[j]
-      if (mj) end = mj.end
-    }
-
-    bounds.push({
-      id: row.listId,
-      top: m.start,
-      span: Math.max(end - m.start, m.size),
-    })
-  }
-
-  return bounds
 }
 
 export function findTodoRowIndex(rows, listId, todoId) {
