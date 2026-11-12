@@ -754,6 +754,24 @@ onBeforeUnmount(() => {
 
 .shopping-category {
   cursor: default;
+  padding: 0.1rem 0.35rem 0;
+}
+
+.shopping-category:not(.is-first) {
+  margin-top: 0.35rem;
+}
+
+.shopping-category .section-header {
+  gap: 0.25rem;
+}
+
+.shopping-category .drag-handle {
+  font-size: 0.7rem;
+}
+
+.shopping-category .title {
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
 }
 
 .shopping-category.drag-over-before {

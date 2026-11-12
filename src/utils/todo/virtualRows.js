@@ -87,7 +87,7 @@ export function estimateRowSize(row) {
     case 'list-header':
       return row.isFirstList ? 36 : 60
     case 'shopping-category':
-      return row.isFirstCategory ? 32 : 48
+      return row.isFirstCategory ? 20 : 26
     case 'shopping-todo':
       return 44
     case 'todo':

@@ -89,8 +89,8 @@ describe('buildVirtualRows', () => {
 describe('estimateRowSize', () => {
   it('returns stable estimates by type', () => {
     expect(estimateRowSize({ type: 'list-header', isFirstList: true })).toBe(36)
-    expect(estimateRowSize({ type: 'shopping-category', isFirstCategory: true })).toBe(32)
-    expect(estimateRowSize({ type: 'shopping-category', isFirstCategory: false })).toBe(48)
+    expect(estimateRowSize({ type: 'shopping-category', isFirstCategory: true })).toBe(20)
+    expect(estimateRowSize({ type: 'shopping-category', isFirstCategory: false })).toBe(26)
     expect(estimateRowSize({ type: 'todo', compact: true })).toBe(28)
     expect(estimateRowSize({ type: 'add-list' })).toBe(56)
   })
