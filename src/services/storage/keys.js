@@ -7,6 +7,7 @@ export const STORAGE_KEYS = {
   UNDO: 'shoping-timing-undo',
   REDO: 'shoping-timing-redo',
   QUICK_ADD_LIST: 'shoping-timing-quick-add-list',
+  SHOPPING_CATEGORY_ORDER: 'shoping-timing-shopping-category-order',
 }
 
 /** Anciennes clés du second tri manuel (mode courses), supprimées au démarrage. */

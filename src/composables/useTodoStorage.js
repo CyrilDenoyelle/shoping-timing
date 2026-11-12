@@ -17,6 +17,10 @@ import {
   syncHistoryStacksListIdsForTodo,
   pruneHistoryStacksForTodo,
 } from '@/services/todo/history.js'
+import {
+  alignShoppingCategoryOrder,
+  moveShoppingCategoryOrder,
+} from '@/utils/todo/shoppingCategoryOrder.js'
 
 function readShoppingModeFromStorage(storage = defaultStorage) {
   const v = storage.getString(STORAGE_KEYS.SHOPPING_MODE)
@@ -44,6 +48,13 @@ export function useTodoStorage(storage = defaultStorage) {
 
   for (const key of LEGACY_SHOPPING_KEYS) storage.remove(key)
 
+  const shoppingCategoryOrder = ref(
+    alignShoppingCategoryOrder(
+      lists.value.map((l) => l.id),
+      storage.getJson(STORAGE_KEYS.SHOPPING_CATEGORY_ORDER),
+    ),
+  )
+
   // Debounce batches rapid deep-watch churn; lifecycle hooks below force a durable write
   // when the tab is backgrounded (mobile WebViews often defer localStorage disk sync).
   const persistLists = debounce(() => saveListsToStorage(lists.value, storage), 300)
@@ -70,6 +81,27 @@ export function useTodoStorage(storage = defaultStorage) {
   watch(shoppingMode, () => {
     storage.setString(STORAGE_KEYS.SHOPPING_MODE, shoppingMode.value ? '1' : '0')
   })
+
+  watch(
+    shoppingCategoryOrder,
+    (order) => {
+      storage.setJson(STORAGE_KEYS.SHOPPING_CATEGORY_ORDER, order)
+    },
+    { deep: true, immediate: true },
+  )
+
+  watch(
+    () => lists.value.map((l) => l.id),
+    (ids) => {
+      const next = alignShoppingCategoryOrder(ids, shoppingCategoryOrder.value)
+      if (
+        next.length !== shoppingCategoryOrder.value.length ||
+        next.some((id, i) => id !== shoppingCategoryOrder.value[i])
+      ) {
+        shoppingCategoryOrder.value = next
+      }
+    },
+  )
 
   const findListById = (listId) => lists.value.find((l) => l.id === listId)
 
@@ -122,6 +154,15 @@ export function useTodoStorage(storage = defaultStorage) {
     if (fromIndex === toIndex) return
     const [moved] = lists.value.splice(fromIndex, 1)
     lists.value.splice(toIndex, 0, moved)
+  }
+
+  const moveShoppingCategory = (fromListId, toListId, place = 'before') => {
+    shoppingCategoryOrder.value = moveShoppingCategoryOrder(
+      shoppingCategoryOrder.value,
+      fromListId,
+      toListId,
+      place,
+    )
   }
 
   const moveTodo = (fromListId, fromIndex, toListId, toIndex) => {
@@ -343,8 +384,14 @@ export function useTodoStorage(storage = defaultStorage) {
 
   const shoppingTodos = computed(() => {
     if (!shoppingMode.value) return []
+    const rank = new Map(shoppingCategoryOrder.value.map((id, i) => [id, i]))
+    const sortedLists = [...lists.value].sort((a, b) => {
+      const ra = rank.has(a.id) ? rank.get(a.id) : Number.MAX_SAFE_INTEGER
+      const rb = rank.has(b.id) ? rank.get(b.id) : Number.MAX_SAFE_INTEGER
+      return ra - rb
+    })
     const ordered = []
-    for (const list of lists.value) {
+    for (const list of sortedLists) {
       for (const t of list.todos) {
         if (!t.done) ordered.push({ ...toDisplayTodo(t), listId: list.id, listName: list.name })
       }
@@ -419,6 +466,7 @@ export function useTodoStorage(storage = defaultStorage) {
     removeList,
     renameList,
     moveList,
+    moveShoppingCategory,
     moveTodo,
     addTodo,
     toggleTodo,

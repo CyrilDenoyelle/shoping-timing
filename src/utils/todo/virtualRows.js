@@ -11,14 +11,33 @@ export function buildVirtualRows({
   const rows = []
 
   if (shoppingMode && shoppingTodos.length) {
+    let lastListId = null
+    let categoryIndex = 0
+    let lastShoppingTodo = null
     for (const todo of shoppingTodos) {
-      rows.push({
+      if (todo.listId !== lastListId) {
+        if (lastShoppingTodo) lastShoppingTodo.isLastInCategory = true
+        rows.push({
+          type: 'shopping-category',
+          key: `sc-${todo.listId}`,
+          listId: todo.listId,
+          listName: todo.listName,
+          categoryIndex,
+          isFirstCategory: categoryIndex === 0,
+        })
+        lastListId = todo.listId
+        categoryIndex += 1
+      }
+      lastShoppingTodo = {
         type: 'shopping-todo',
         key: `s-${todo.listId}-${todo.id}`,
         listId: todo.listId,
         todo,
-      })
+        isLastInCategory: false,
+      }
+      rows.push(lastShoppingTodo)
     }
+    if (lastShoppingTodo) lastShoppingTodo.isLastInCategory = true
     rows.push({ type: 'shopping-end', key: 'shopping-end' })
   }
 
@@ -67,6 +86,8 @@ export function estimateRowSize(row) {
   switch (row.type) {
     case 'list-header':
       return row.isFirstList ? 36 : 60
+    case 'shopping-category':
+      return row.isFirstCategory ? 32 : 48
     case 'shopping-todo':
       return 44
     case 'todo':

@@ -31,6 +31,7 @@ const {
   removeList,
   renameList,
   moveList,
+  moveShoppingCategory,
   moveTodo,
   addTodo,
   toggleTodo,
@@ -252,6 +253,97 @@ const onDragEnd = () => {
   disarmListDrag()
 }
 
+const draggedCategoryId = ref(null)
+const dragOverCategoryId = ref(null)
+const dragOverCategoryHalf = ref(null)
+const categoryDragArmedId = ref(null)
+
+const disarmCategoryDrag = () => {
+  document.querySelectorAll('.shopping-category[draggable="true"]').forEach((el) => {
+    el.draggable = false
+  })
+  categoryDragArmedId.value = null
+}
+
+const armCategoryDrag = (listId, e) => {
+  if (isDraggingTodo()) return
+  categoryDragArmedId.value = listId
+  e.currentTarget.closest('.shopping-category')?.setAttribute('draggable', 'true')
+}
+
+const onCategoryHandlePointerUp = () => {
+  if (draggedCategoryId.value === null) disarmCategoryDrag()
+}
+
+const onCategoryDragStart = (listId, e) => {
+  const fromHandle = !!e.target.closest?.('.drag-handle')
+  if (categoryDragArmedId.value !== listId && !fromHandle) {
+    e.preventDefault()
+    return
+  }
+  draggedCategoryId.value = listId
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', String(listId))
+}
+
+const categoryPlaceFromPointer = (e, place) => {
+  if (place === 'before' || place === 'after') return place
+  const rect = e.currentTarget.getBoundingClientRect()
+  return e.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
+}
+
+const onCategoryDragOver = (listId, e, place) => {
+  if (draggedCategoryId.value === null) return
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'move'
+  if (draggedCategoryId.value === listId) {
+    dragOverCategoryId.value = null
+    dragOverCategoryHalf.value = null
+    return
+  }
+  dragOverCategoryId.value = listId
+  dragOverCategoryHalf.value = categoryPlaceFromPointer(e, place)
+}
+
+const onCategoryDragLeave = (listId, e) => {
+  const next = e.relatedTarget
+  if (next instanceof Element && next.closest(`[data-shopping-category="${listId}"]`)) return
+  if (dragOverCategoryId.value === listId) {
+    dragOverCategoryId.value = null
+    dragOverCategoryHalf.value = null
+  }
+}
+
+const onCategoryDrop = (listId, e, place) => {
+  const resolved = e ? categoryPlaceFromPointer(e, place) : 'before'
+  if (draggedCategoryId.value !== null && draggedCategoryId.value !== listId) {
+    moveShoppingCategory(draggedCategoryId.value, listId, resolved)
+  }
+  draggedCategoryId.value = null
+  dragOverCategoryId.value = null
+  dragOverCategoryHalf.value = null
+  disarmCategoryDrag()
+}
+
+const onCategoryDragEnd = () => {
+  draggedCategoryId.value = null
+  dragOverCategoryId.value = null
+  dragOverCategoryHalf.value = null
+  disarmCategoryDrag()
+}
+
+const onShoppingEndDragOver = (e) => {
+  const last = shoppingTodos.value.at(-1)
+  if (!last || draggedCategoryId.value === null) return
+  onCategoryDragOver(last.listId, e, 'after')
+}
+
+const onShoppingEndDrop = (e) => {
+  const last = shoppingTodos.value.at(-1)
+  if (!last) return
+  onCategoryDrop(last.listId, e, 'after')
+}
+
 const scrollToTodo = async (listId, todoId) => {
   const index = findTodoRowIndex(virtualRows.value, listId, todoId)
   if (index < 0) return
@@ -441,9 +533,49 @@ onBeforeUnmount(() => {
         :style="{ transform: `translateY(${item.offset}px)` }"
       >
         <div
-          v-if="item.row.type === 'shopping-todo'"
-          class="todo-row"
+          v-if="item.row.type === 'shopping-category'"
+          class="section-header-row shopping-category"
+          :data-shopping-category="item.row.listId"
+          :class="{
+            'is-first': item.row.isFirstCategory,
+            'is-dragging': draggedCategoryId === item.row.listId,
+            'drag-over-before':
+              dragOverCategoryId === item.row.listId && dragOverCategoryHalf === 'before',
+          }"
+          @dragover="onCategoryDragOver(item.row.listId, $event)"
+          @dragleave="onCategoryDragLeave(item.row.listId, $event)"
+          @drop="onCategoryDrop(item.row.listId, $event)"
+          @dragend="onCategoryDragEnd"
+        >
+          <div class="section-header">
+            <span
+              class="drag-handle"
+              role="button"
+              draggable="true"
+              aria-label="Glisser pour réordonner la catégorie"
+              @pointerdown="armCategoryDrag(item.row.listId, $event)"
+              @pointerup="onCategoryHandlePointerUp"
+              @pointercancel="onCategoryHandlePointerUp"
+              @dragstart="onCategoryDragStart(item.row.listId, $event)"
+            >⠿</span>
+            <h2 class="title">{{ item.row.listName }}</h2>
+          </div>
+        </div>
+
+        <div
+          v-else-if="item.row.type === 'shopping-todo'"
+          class="todo-row shopping-todo-row"
           :data-todo-id="item.row.listId + '-' + item.row.todo.id"
+          :data-shopping-category="item.row.listId"
+          :class="{
+            'category-drag-after':
+              item.row.isLastInCategory &&
+              dragOverCategoryId === item.row.listId &&
+              dragOverCategoryHalf === 'after',
+          }"
+          @dragover="onCategoryDragOver(item.row.listId, $event, 'after')"
+          @dragleave="onCategoryDragLeave(item.row.listId, $event)"
+          @drop="onCategoryDrop(item.row.listId, $event, 'after')"
         >
           <TodoItem
             :todo="item.row.todo"
@@ -454,7 +586,12 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <div v-else-if="item.row.type === 'shopping-end'" class="shopping-end" />
+        <div
+          v-else-if="item.row.type === 'shopping-end'"
+          class="shopping-end"
+          @dragover="onShoppingEndDragOver"
+          @drop="onShoppingEndDrop($event)"
+        />
 
         <div
           v-else-if="item.row.type === 'list-header'"
@@ -613,6 +750,23 @@ onBeforeUnmount(() => {
 
 .section-header-row:not(.is-first) {
   margin-top: 1.25rem;
+}
+
+.shopping-category {
+  cursor: default;
+}
+
+.shopping-category.drag-over-before {
+  box-shadow: 0 -2px 0 0 var(--accent);
+}
+
+.shopping-todo-row {
+  padding-left: 0.75rem;
+}
+
+.shopping-todo-row.category-drag-after {
+  box-shadow: 0 2px 0 0 var(--accent);
+  border-radius: 6px;
 }
 
 .shopping-end {
