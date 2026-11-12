@@ -97,6 +97,13 @@ const formatQty = computed(() => {
   return u ? `${num} ${u}` : `${num}`
 })
 
+const intervalTitle = computed(() => {
+  const base = `Rachat en moyenne tous les ${props.todo.formattedInterval}`
+  return props.todo.formattedStdDev
+    ? `${base} (écart-type ± ${props.todo.formattedStdDev})`
+    : base
+})
+
 const startEditQty = () => {
   editingQty.value = true
   editQtyValue.value = String(props.todo.quantity ?? 1)
@@ -218,7 +225,14 @@ const onRowClick = () => {
         v-else
         class="label"
         @dblclick.stop="startEdit"
-      >{{ todo.text }}<span v-if="todo.formattedInterval" class="interval">{{ todo.formattedInterval }}</span></span>
+      >{{ todo.text }}<span
+        v-if="todo.formattedInterval"
+        class="interval"
+        :title="intervalTitle"
+      >{{ todo.formattedInterval }}<span
+        v-if="todo.formattedStdDev"
+        class="interval-dev"
+      > ± {{ todo.formattedStdDev }}</span></span></span>
     </div>
 
     <div v-if="!compact && !todo.done" class="stepper" :class="{ 'stepper-idle': !hasQtyOrUnit }" @click.stop>
@@ -414,6 +428,10 @@ const onRowClick = () => {
   opacity: 0.7;
   font-weight: 400;
   white-space: nowrap;
+}
+
+.interval-dev {
+  opacity: 0.75;
 }
 
 .item.compact .interval {

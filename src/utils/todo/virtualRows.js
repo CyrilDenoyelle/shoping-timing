@@ -11,14 +11,12 @@ export function buildVirtualRows({
   const rows = []
 
   if (shoppingMode && shoppingTodos.length) {
-    for (let si = 0; si < shoppingTodos.length; si++) {
-      const todo = shoppingTodos[si]
+    for (const todo of shoppingTodos) {
       rows.push({
         type: 'shopping-todo',
         key: `s-${todo.listId}-${todo.id}`,
         listId: todo.listId,
         todo,
-        shoppingIndex: si,
       })
     }
     rows.push({ type: 'shopping-end', key: 'shopping-end' })

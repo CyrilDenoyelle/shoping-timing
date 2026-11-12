@@ -1,13 +1,19 @@
 import { convertQuantity } from '@/utils/todo/units.js'
 import { DAY } from '@/utils/time.js'
 
-export function computeWeightedIntervalMs(todo) {
+const NO_STATS = { averageMs: Infinity, stdDevMs: null }
+
+export function computeIntervalStats(todo) {
   const timings = todo.timings ?? []
-  if (timings.length < 2) return Infinity
+  if (timings.length < 2) return NO_STATS
   const currentUnit = todo.unit || ''
   const conversions = todo.conversions ?? {}
   let totalInterval = 0
   let totalQty = 0
+  let samples = 0
+  // Welford pondéré : variance des ms/unité accumulée dans le même passage que la moyenne
+  let runningMean = 0
+  let m2 = 0
   for (let i = 0; i < timings.length - 1; i++) {
     const t = timings[i]
     const tNext = timings[i + 1]
@@ -18,15 +24,30 @@ export function computeWeightedIntervalMs(todo) {
     if (qty <= 0) continue
     totalInterval += interval
     totalQty += qty
+    samples++
+    const rate = interval / qty
+    const prevMean = runningMean
+    runningMean += (qty / totalQty) * (rate - prevMean)
+    m2 += qty * (rate - prevMean) * (rate - runningMean)
   }
-  if (totalQty <= 0) return Infinity
+  if (totalQty <= 0) return NO_STATS
   // Temps moyen par unité (pondéré par les qty achetées) × stock cible du sélecteur
+  const scale = todo.quantity ?? 1
   const avgMsPerUnit = totalInterval / totalQty
-  return avgMsPerUnit * (todo.quantity ?? 1)
+  return {
+    averageMs: avgMsPerUnit * scale,
+    stdDevMs: samples < 2 ? null : Math.sqrt(m2 / totalQty) * scale,
+  }
+}
+
+export function computeWeightedIntervalMs(todo) {
+  return computeIntervalStats(todo).averageMs
 }
 
 export function updateTodoAverage(todo) {
-  todo.averageIntervalMs = computeWeightedIntervalMs(todo)
+  const { averageMs, stdDevMs } = computeIntervalStats(todo)
+  todo.averageIntervalMs = averageMs
+  todo.intervalStdDevMs = stdDevMs
 }
 
 export function formatMs(ms) {
@@ -52,6 +73,6 @@ export function getProgress(todo, now) {
   const lastEnd = timings[timings.length - 1].end
   if (lastEnd == null) return 0
   const elapsed = now - lastEnd
-  const progress = Math.ceil((elapsed / todo.averageIntervalMs) * 10) / 10
-  return Math.max(0, progress - 0.5)
+  // Part du délai moyen écoulée depuis le dernier achat : 0 = acheté, 1 = stock censé fini
+  return Math.max(0, elapsed / todo.averageIntervalMs)
 }

@@ -1,9 +1,8 @@
 import { ref, reactive, watch, computed } from 'vue'
-import { STORAGE_KEYS, defaultStorage } from '@/services/storage'
+import { STORAGE_KEYS, LEGACY_SHOPPING_KEYS, defaultStorage } from '@/services/storage'
 import { defaultLists } from '@/utils/todo/demoData.js'
 import { getBaseUnit, unitScale } from '@/utils/todo/units.js'
 import { updateTodoAverage, formatMs, getProgress } from '@/utils/todo/todoIntervals.js'
-import { todoShoppingKey, parseShoppingKey } from '@/utils/todo/shoppingKeys.js'
 import { debounce } from '@/utils/debounce.js'
 import {
   loadListsFromStorage,
@@ -24,17 +23,8 @@ function readShoppingModeFromStorage(storage = defaultStorage) {
   return v === '1' || v === 'true'
 }
 
-function saveShoppingOrder(order, storage = defaultStorage) {
-  storage.setJson(STORAGE_KEYS.SHOPPING_ORDER, order)
-}
-
 const shoppingMode = ref(readShoppingModeFromStorage())
 const manualSort = ref(defaultStorage.getString(STORAGE_KEYS.SORT_MODE) === 'manual')
-const shoppingManualSort = ref(defaultStorage.getString(STORAGE_KEYS.SHOPPING_MANUAL_SORT) === '1')
-const shoppingOrder = ref((() => {
-  const parsed = defaultStorage.getJson(STORAGE_KEYS.SHOPPING_ORDER, [])
-  return Array.isArray(parsed) ? parsed : []
-})())
 
 const confettiTrigger = ref(0)
 const { undo: initialUndo, redo: initialRedo } = createHistoryStacks(defaultStorage)
@@ -52,22 +42,7 @@ export function useTodoStorage(storage = defaultStorage) {
 
   let nextTodoId = Math.max(0, ...lists.value.flatMap((l) => l.todos.map((t) => t.id))) + 1
 
-  const syncShoppingOrder = () => {
-    const allKeys = []
-    for (const list of lists.value) {
-      for (const t of list.todos) {
-        allKeys.push(todoShoppingKey(list.id, t.id))
-      }
-    }
-    const allSet = new Set(allKeys)
-    const preserved = shoppingOrder.value.filter((k) => allSet.has(k))
-    const preservedSet = new Set(preserved)
-    const appended = allKeys.filter((k) => !preservedSet.has(k))
-    const next = [...preserved, ...appended]
-    if (next.length !== shoppingOrder.value.length || next.some((k, i) => k !== shoppingOrder.value[i])) {
-      shoppingOrder.value = next
-    }
-  }
+  for (const key of LEGACY_SHOPPING_KEYS) storage.remove(key)
 
   // Debounce batches rapid deep-watch churn; lifecycle hooks below force a durable write
   // when the tab is backgrounded (mobile WebViews often defer localStorage disk sync).
@@ -76,7 +51,6 @@ export function useTodoStorage(storage = defaultStorage) {
   flushListsPersist = () => {
     persistLists.cancel()
     saveListsToStorage(lists.value, storage)
-    saveShoppingOrder(shoppingOrder.value, storage)
   }
   if (!pageHideRegistered) {
     const onBackground = () => flushListsPersist?.()
@@ -88,14 +62,7 @@ export function useTodoStorage(storage = defaultStorage) {
     pageHideRegistered = true
   }
 
-  watch(
-    lists,
-    () => {
-      syncShoppingOrder()
-      persistLists()
-    },
-    { deep: true, immediate: true },
-  )
+  watch(lists, () => persistLists(), { deep: true, immediate: true })
 
   watch(undoStack, () => saveStack(STORAGE_KEYS.UNDO, undoStack, storage))
   watch(redoStack, () => saveStack(STORAGE_KEYS.REDO, redoStack, storage))
@@ -104,19 +71,7 @@ export function useTodoStorage(storage = defaultStorage) {
     storage.setString(STORAGE_KEYS.SHOPPING_MODE, shoppingMode.value ? '1' : '0')
   })
 
-  watch(shoppingManualSort, () => {
-    storage.setString(STORAGE_KEYS.SHOPPING_MANUAL_SORT, shoppingManualSort.value ? '1' : '0')
-  })
-
-  watch(shoppingOrder, (order) => saveShoppingOrder(order, storage), { deep: true })
-
   const findListById = (listId) => lists.value.find((l) => l.id === listId)
-
-  const isUncheckedShoppingKey = (key) => {
-    const { listId, todoId } = parseShoppingKey(key)
-    const todo = findListById(listId)?.todos.find((t) => t.id === todoId)
-    return todo != null && !todo.done
-  }
 
   const todoUndoChains = computed(() => {
     /** @type {Record<string, unknown[]>} */
@@ -178,26 +133,7 @@ export function useTodoStorage(storage = defaultStorage) {
     toList.todos.splice(toIndex, 0, moved)
     if (fromList !== toList) {
       syncHistoryStacksListIdsForTodo(undoStack, redoStack, moved.id, toList.id)
-      const oldKey = todoShoppingKey(fromListId, moved.id)
-      const newKey = todoShoppingKey(toList.id, moved.id)
-      const idx = shoppingOrder.value.indexOf(oldKey)
-      if (idx !== -1) shoppingOrder.value[idx] = newKey
     }
-  }
-
-  const moveShoppingTodo = (fromIndex, toIndex) => {
-    if (fromIndex === toIndex) return
-    syncShoppingOrder()
-    const order = [...shoppingOrder.value]
-    const uncheckedKeys = order.filter(isUncheckedShoppingKey)
-    if (
-      fromIndex < 0 || fromIndex >= uncheckedKeys.length ||
-      toIndex < 0 || toIndex >= uncheckedKeys.length
-    ) return
-    const [movedKey] = uncheckedKeys.splice(fromIndex, 1)
-    uncheckedKeys.splice(toIndex, 0, movedKey)
-    let u = 0
-    shoppingOrder.value = order.map((k) => (isUncheckedShoppingKey(k) ? uncheckedKeys[u++] : k))
   }
 
   const addTodo = (listId, text) => {
@@ -209,6 +145,7 @@ export function useTodoStorage(storage = defaultStorage) {
       done: false,
       timings: [],
       averageIntervalMs: Infinity,
+      intervalStdDevMs: null,
       quantity: 1,
       unit: '',
       conversions: {},
@@ -388,41 +325,30 @@ export function useTodoStorage(storage = defaultStorage) {
   }
 
   const toDisplayTodo = (todo) => {
-    const raw = getProgress(todo, now.value)
+    const ratio = getProgress(todo, now.value)
     return {
       ...todo,
-      x: Math.round((Math.min(1, raw) - (Math.max(1, raw) - 1)) * 100) / 100,
-      progress: Math.round(Math.min(1, raw) * 100) / 100,
+      ratio,
+      progress: Math.round(Math.min(1, ratio) * 100) / 100,
       formattedInterval: formatMs(todo.averageIntervalMs),
+      formattedStdDev: formatMs(todo.intervalStdDevMs),
     }
   }
 
   const sortByProgress = (a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1
-    if (a.done) return b.x - a.x
+    if (a.done) return b.ratio - a.ratio
     return 0
   }
 
   const shoppingTodos = computed(() => {
     if (!shoppingMode.value) return []
-    const byKey = new Map()
+    const ordered = []
     for (const list of lists.value) {
       for (const t of list.todos) {
-        if (!t.done) {
-          const key = todoShoppingKey(list.id, t.id)
-          byKey.set(key, { ...toDisplayTodo(t), listId: list.id, listName: list.name })
-        }
+        if (!t.done) ordered.push({ ...toDisplayTodo(t), listId: list.id, listName: list.name })
       }
     }
-    const ordered = []
-    for (const key of shoppingOrder.value) {
-      const item = byKey.get(key)
-      if (item) {
-        ordered.push(item)
-        byKey.delete(key)
-      }
-    }
-    for (const item of byKey.values()) ordered.push(item)
     return ordered
   })
 
@@ -480,16 +406,10 @@ export function useTodoStorage(storage = defaultStorage) {
     storage.setString(STORAGE_KEYS.SORT_MODE, manualSort.value ? 'manual' : 'auto')
   }
 
-  const toggleShoppingManualSort = () => {
-    shoppingManualSort.value = !shoppingManualSort.value
-    if (shoppingManualSort.value) syncShoppingOrder()
-  }
-
   instance = {
     lists,
     shoppingMode,
     manualSort,
-    shoppingManualSort,
     confettiTrigger,
     uncheckedCount,
     displayLists,
@@ -500,7 +420,6 @@ export function useTodoStorage(storage = defaultStorage) {
     renameList,
     moveList,
     moveTodo,
-    moveShoppingTodo,
     addTodo,
     toggleTodo,
     removeTodo,
@@ -517,7 +436,6 @@ export function useTodoStorage(storage = defaultStorage) {
     canRedoTodo,
     toggleShoppingMode,
     toggleManualSort,
-    toggleShoppingManualSort,
     refreshNow,
   }
 

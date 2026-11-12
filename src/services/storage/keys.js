@@ -4,11 +4,15 @@ export const STORAGE_KEYS = {
   LEGACY_TODOS: 'shoping-timing-todos',
   SORT_MODE: 'shoping-timing-sort-mode',
   SHOPPING_MODE: 'shoping-timing-shopping-mode',
-  SHOPPING_ORDER: 'shoping-timing-shopping-order',
-  SHOPPING_MANUAL_SORT: 'shoping-timing-shopping-manual-sort',
   UNDO: 'shoping-timing-undo',
   REDO: 'shoping-timing-redo',
   QUICK_ADD_LIST: 'shoping-timing-quick-add-list',
 }
+
+/** Anciennes clés du second tri manuel (mode courses), supprimées au démarrage. */
+export const LEGACY_SHOPPING_KEYS = [
+  'shoping-timing-shopping-order',
+  'shoping-timing-shopping-manual-sort',
+]
 
 export const MAX_PERSISTED_ACTIONS = 100

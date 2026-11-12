@@ -25,7 +25,6 @@ const {
   displayLists,
   shoppingMode,
   manualSort,
-  shoppingManualSort,
   shoppingTodos,
   allTodoTexts,
   addList,
@@ -33,7 +32,6 @@ const {
   renameList,
   moveList,
   moveTodo,
-  moveShoppingTodo,
   addTodo,
   toggleTodo,
   removeTodo,
@@ -285,7 +283,6 @@ const dragOverTodoKey = ref(null)
 const dragOverHalf = ref(null)
 const dragOverListZone = ref(null)
 const todoDragArmedKey = ref(null)
-const shoppingDragArmedIndex = ref(null)
 
 const isDraggingTodo = () => draggedTodoListId.value !== null
 
@@ -301,13 +298,10 @@ const disarmTodoDragAttr = () => {
     el.draggable = false
   })
   todoDragArmedKey.value = null
-  shoppingDragArmedIndex.value = null
 }
 
 const onTodoPointerUp = () => {
-  if (draggedTodoListId.value === null && draggedShoppingIndex.value === null) {
-    disarmTodoDragAttr()
-  }
+  if (draggedTodoListId.value === null) disarmTodoDragAttr()
 }
 
 const onTodoDragStart = (listId, index, e) => {
@@ -404,69 +398,6 @@ const onTodoDragEnd = () => {
   resetTodoDrag()
 }
 
-const draggedShoppingIndex = ref(null)
-const dragOverShoppingKey = ref(null)
-const dragOverShoppingHalf = ref(null)
-
-const armShoppingDrag = (index, e) => {
-  if (!shoppingManualSort.value) return
-  if (!e.target.closest?.('.drag-grip')) return
-  shoppingDragArmedIndex.value = index
-  e.currentTarget.setAttribute('draggable', 'true')
-}
-
-const onShoppingDragStart = (index, e) => {
-  if (!shoppingManualSort.value) return
-  if (shoppingDragArmedIndex.value !== index) {
-    e.preventDefault()
-    return
-  }
-  e.stopPropagation()
-  draggedShoppingIndex.value = index
-  e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('text/plain', `shopping:${index}`)
-}
-
-const onShoppingDragOver = (index, e) => {
-  if (!shoppingManualSort.value || draggedShoppingIndex.value === null) return
-  e.preventDefault()
-  e.stopPropagation()
-  e.dataTransfer.dropEffect = 'move'
-  const rect = e.currentTarget.getBoundingClientRect()
-  dragOverShoppingHalf.value = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
-  dragOverShoppingKey.value = index
-}
-
-const onShoppingDragLeave = (e) => {
-  if (!e.currentTarget.contains(e.relatedTarget)) {
-    dragOverShoppingKey.value = null
-    dragOverShoppingHalf.value = null
-  }
-}
-
-const onShoppingDrop = (index, e) => {
-  e.stopPropagation()
-  if (draggedShoppingIndex.value === null) return
-  const fromIdx = draggedShoppingIndex.value
-  const half = dragOverShoppingHalf.value ?? 'before'
-  let toIdx = half === 'before' ? index : index + 1
-  if (fromIdx < toIdx) toIdx--
-  if (fromIdx !== toIdx) moveShoppingTodo(fromIdx, toIdx)
-  resetShoppingDrag()
-}
-
-const resetShoppingDrag = () => {
-  draggedShoppingIndex.value = null
-  dragOverShoppingKey.value = null
-  dragOverShoppingHalf.value = null
-  shoppingDragArmedIndex.value = null
-  disarmTodoDragAttr()
-}
-
-const onShoppingDragEnd = () => {
-  resetShoppingDrag()
-}
-
 const onResize = () => {
   updateParentOffset()
   // measure() repart des estimations : les lignes montées doivent être remesurées.
@@ -513,34 +444,10 @@ onBeforeUnmount(() => {
           v-if="item.row.type === 'shopping-todo'"
           class="todo-row"
           :data-todo-id="item.row.listId + '-' + item.row.todo.id"
-          :draggable="shoppingDragArmedIndex === item.row.shoppingIndex"
-          :class="{
-            'todo-dragging':
-              shoppingManualSort && draggedShoppingIndex === item.row.shoppingIndex,
-            'todo-drag-before':
-              shoppingManualSort &&
-              dragOverShoppingKey === item.row.shoppingIndex &&
-              dragOverShoppingHalf === 'before' &&
-              draggedShoppingIndex !== item.row.shoppingIndex,
-            'todo-drag-after':
-              shoppingManualSort &&
-              dragOverShoppingKey === item.row.shoppingIndex &&
-              dragOverShoppingHalf === 'after' &&
-              draggedShoppingIndex !== item.row.shoppingIndex,
-          }"
-          @pointerdown="armShoppingDrag(item.row.shoppingIndex, $event)"
-          @pointerup="onTodoPointerUp"
-          @pointercancel="onTodoPointerUp"
-          @dragstart="onShoppingDragStart(item.row.shoppingIndex, $event)"
-          @dragover="onShoppingDragOver(item.row.shoppingIndex, $event)"
-          @dragleave="onShoppingDragLeave($event)"
-          @drop="onShoppingDrop(item.row.shoppingIndex, $event)"
-          @dragend="onShoppingDragEnd"
         >
           <TodoItem
             :todo="item.row.todo"
             :shopping-mode="true"
-            :reorderable="shoppingManualSort"
             :can-undo="canUndoTodo(item.row.todo.id)"
             :can-redo="canRedoTodo(item.row.todo.id)"
             v-bind="todoActions(item.row.listId, item.row.todo.id)"
