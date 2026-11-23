@@ -10,6 +10,7 @@ export const STORAGE_KEYS = {
   SHOPPING_CATEGORY_ORDER: 'shoping-timing-shopping-category-order',
   DEMO_REVISION: 'shoping-timing-demo-revision',
   RHYTHM_ADVANCED: 'shoping-timing-rhythm-advanced',
+  RHYTHM_HIDE_SINGLE: 'shoping-timing-rhythm-hide-single',
 }
 
 /** Anciennes clés du second tri manuel (mode courses), supprimées au démarrage. */

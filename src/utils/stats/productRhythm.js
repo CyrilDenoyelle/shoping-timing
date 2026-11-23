@@ -119,6 +119,22 @@ export function filterProductGroups(groups, query) {
   return filtered
 }
 
+/**
+ * Garde les produits ayant au moins `minPoints` intervalles mesurés. Les listes sans produit restant
+ * disparaissent. `minPoints` ≤ 1 ne change rien : un produit affiché a toujours au moins un intervalle.
+ * @param {ReturnType<typeof buildProductRhythms>} groups
+ * @param {number} minPoints
+ */
+export function filterGroupsByPointCount(groups, minPoints) {
+  if (!Number.isFinite(minPoints) || minPoints <= 1) return groups
+  const filtered = []
+  for (const group of groups) {
+    const products = group.products.filter((product) => product.samples.length >= minPoints)
+    if (products.length > 0) filtered.push({ ...group, products })
+  }
+  return filtered
+}
+
 // Rayon d'un point : croît avec la racine de la quantité (surface proportionnelle au poids).
 const MIN_POINT_RADIUS = 3
 const POINT_RADIUS_SPAN = 6

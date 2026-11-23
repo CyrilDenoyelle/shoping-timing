@@ -24,6 +24,7 @@ describe('demo data rhythms', () => {
 
     expect(all.some((a) => a.medianMs != null && a.lowerMs < a.medianMs && a.medianMs < a.upperMs)).toBe(true)
     expect(all.some((a) => a.samples.length === 2 && a.medianMs == null)).toBe(true)
+    expect(all.find((a) => a.text === 'Miel').samples).toHaveLength(1)
 
     const lait = all.find((a) => a.text === 'Lait')
     const radii = new Set(lait.samples.map((s) => s.qty))

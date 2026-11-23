@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, nextTick, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import ProductRhythmChart from '@/features/stats/components/ProductRhythmChart.vue'
-import { buildProductRhythms, filterProductGroups } from '@/utils/stats/productRhythm.js'
+import { buildProductRhythms, filterGroupsByPointCount, filterProductGroups } from '@/utils/stats/productRhythm.js'
 import { balancedRows, cardSpansAround } from '@/utils/stats/gridLayout.js'
 import { useContainerColumns } from '@/composables/useContainerColumns.js'
 import { readChartTheme } from '@/features/stats/chart/theme.js'
@@ -38,7 +38,21 @@ function onSearchEscape(event) {
 
 const groups = computed(() => buildProductRhythms(props.lists))
 const productCount = computed(() => groups.value.reduce((sum, g) => sum + g.products.length, 0))
-const visibleGroups = computed(() => filterProductGroups(groups.value, query.value))
+
+// Courbes à un seul point : peu lisibles, masquées par défaut. Le choix est mémorisé.
+const hideSinglePoints = ref(defaultStorage.getString(STORAGE_KEYS.RHYTHM_HIDE_SINGLE) !== '0')
+watch(hideSinglePoints, (value) => {
+  defaultStorage.setString(STORAGE_KEYS.RHYTHM_HIDE_SINGLE, value ? '1' : '0')
+})
+const singlePointCount = computed(() =>
+  groups.value.reduce((sum, g) => sum + g.products.filter((p) => p.samples.length < 2).length, 0),
+)
+const shownGroups = computed(() =>
+  hideSinglePoints.value ? filterGroupsByPointCount(groups.value, 2) : groups.value,
+)
+const shownCount = computed(() => shownGroups.value.reduce((sum, g) => sum + g.products.length, 0))
+
+const visibleGroups = computed(() => filterProductGroups(shownGroups.value, query.value))
 const visibleCount = computed(() => visibleGroups.value.reduce((sum, g) => sum + g.products.length, 0))
 
 // Mise en page : rangées équilibrées selon la largeur disponible (7 cartes sur 3 colonnes → 3, 2, 2)
@@ -69,6 +83,31 @@ function toggleExpanded(key) {
   measureViewport()
   expandedKey.value = expandedKey.value === key ? null : key
 }
+
+// À l'agrandissement, la carte vient se placer sous la barre d'outils collée. Le défilement vise uniquement
+// la zone des cartes : `scrollIntoView` ferait aussi défiler le document (sur mobile, `100vh` dépasse la
+// hauteur visible) et pousserait l'en-tête de la page hors de l'écran.
+// La réduction ne défile pas : lors d'un passage d'une carte à une autre, elle écraserait le défilement
+// de la carte qui s'agrandit.
+const cardComponents = new Map()
+function setCardRef(key, component) {
+  if (component) cardComponents.set(key, component)
+  else cardComponents.delete(key)
+}
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+watch(expandedKey, async (key) => {
+  if (!key) return
+  await nextTick()
+  const card = cardComponents.get(key)?.$el
+  const container = scroller.value
+  if (!card || !container) return
+  const offset = card.getBoundingClientRect().top - container.getBoundingClientRect().top - toolbarHeight.value
+  container.scrollTo({
+    top: container.scrollTop + offset,
+    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+  })
+})
 
 // Une carte filtrée n'est plus à l'écran : l'état agrandi retombe.
 const visibleKeys = computed(() => new Set(visibleGroups.value.flatMap((g) => g.products.map((p) => p.key))))
@@ -101,10 +140,11 @@ const sections = computed(() =>
 )
 
 const resultLabel = computed(() => {
+  const total = shownCount.value
   if (isFiltering.value) {
-    return `${visibleCount.value} ${plural(visibleCount.value, 'produit', 'produits')} sur ${productCount.value}`
+    return `${visibleCount.value} ${plural(visibleCount.value, 'produit', 'produits')} sur ${total}`
   }
-  return `${productCount.value} ${plural(productCount.value, 'produit mesuré', 'produits mesurés')}`
+  return `${total} ${plural(total, 'produit mesuré', 'produits mesurés')}`
 })
 
 const theme = ref(readChartTheme())
@@ -135,12 +175,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    ref="scroller"
-    class="rhythm-stats"
-    :style="{ '--toolbar-height': `${toolbarHeight}px` }"
-    aria-labelledby="rhythm-title"
-  >
+  <section ref="scroller" class="rhythm-stats" aria-labelledby="rhythm-title">
     <h2 id="rhythm-title" class="rhythm-title">Rythme de chaque produit</h2>
 
     <p v-if="advanced" class="rhythm-hint">
@@ -184,6 +219,10 @@ onBeforeUnmount(() => {
           ✕
         </button>
       </form>
+      <label v-if="singlePointCount > 0" class="advanced-toggle">
+        <input v-model="hideSinglePoints" type="checkbox" />
+        Masquer les courbes à 1 point
+      </label>
       <label class="advanced-toggle">
         <input v-model="advanced" type="checkbox" />
         Mode avancé
@@ -223,6 +262,7 @@ onBeforeUnmount(() => {
           <ProductRhythmChart
             v-for="(product, index) in section.products"
             :key="product.key"
+            :ref="(component) => setCardRef(product.key, component)"
             :style="{
               gridColumn: `span ${section.spans[index]}`,
               height: product.key === expandedKey ? `${expandedHeight}px` : undefined,

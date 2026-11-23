@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -44,23 +44,6 @@ const props = defineProps({
 const emit = defineEmits(['toggle-expand'])
 
 const plugins = [rhythmGuidesPlugin]
-
-// À l'agrandissement, la carte vient se placer en haut de la zone visible (sous la barre d'outils collée).
-// La réduction ne défile pas : lors d'un passage d'une carte à une autre, son défilement écraserait celui de
-// la carte qui s'agrandit.
-const root = ref(null)
-const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
-watch(
-  () => props.expanded,
-  async (isExpanded) => {
-    if (!isExpanded) return
-    await nextTick()
-    root.value?.scrollIntoView({
-      block: 'start',
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-    })
-  },
-)
 
 const numberFormat = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 })
 // Graduations de l'axe : 2 chiffres significatifs gardent lisibles les petites valeurs (0,12) comme les grandes (1 200).
@@ -263,7 +246,7 @@ const chartOptions = computed(() => {
 </script>
 
 <template>
-  <article ref="root" class="rhythm-card" :class="{ expanded }">
+  <article class="rhythm-card" :class="{ expanded }">
     <header class="card-head">
       <div class="card-top">
         <h4 class="card-title">
@@ -441,11 +424,9 @@ const chartOptions = computed(() => {
   stroke-linejoin: round;
 }
 
-/* Carte agrandie : le graphique prend toute la hauteur que le parent lui donne, et le défilement
-   automatique la cale sous la barre d'outils collée (--toolbar-height, définie par le parent). */
+/* Carte agrandie : le graphique prend toute la hauteur que le parent lui donne. */
 .rhythm-card.expanded {
   border-color: var(--accent);
-  scroll-margin-top: var(--toolbar-height, 0px);
 }
 
 .rhythm-card.expanded .chart-box {

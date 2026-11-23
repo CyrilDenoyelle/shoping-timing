@@ -5,6 +5,7 @@ import {
   buildRhythmChartModel,
   describeExclusion,
   durationUnitFor,
+  filterGroupsByPointCount,
   filterProductGroups,
   normalizeSearch,
   summarizeExclusions,
@@ -242,6 +243,31 @@ describe('productRhythm', () => {
     it('returns an empty array when nothing matches and leaves the input untouched', () => {
       expect(filterProductGroups(groups, 'zzz')).toEqual([])
       expect(groups[0].products).toHaveLength(3)
+    })
+  })
+
+  describe('filterGroupsByPointCount', () => {
+    const product = (id, points) => ({ key: `k${id}`, samples: Array(points).fill({}) })
+    const groups = [
+      { listId: 'a', listName: 'Manger', products: [product(1, 1), product(2, 5), product(3, 2)] },
+      { listId: 'b', listName: 'Maison', products: [product(4, 1)] },
+    ]
+    const keys = (result) => result.map((g) => g.products.map((p) => p.key))
+
+    it('keeps products with at least the requested number of points', () => {
+      expect(keys(filterGroupsByPointCount(groups, 2))).toEqual([['k2', 'k3']])
+      expect(keys(filterGroupsByPointCount(groups, 5))).toEqual([['k2']])
+    })
+
+    it('drops lists left without products and leaves the input untouched', () => {
+      expect(filterGroupsByPointCount(groups, 6)).toEqual([])
+      expect(groups[1].products).toHaveLength(1)
+    })
+
+    it('returns the same groups when the threshold filters nothing', () => {
+      expect(filterGroupsByPointCount(groups, 1)).toBe(groups)
+      expect(filterGroupsByPointCount(groups, 0)).toBe(groups)
+      expect(filterGroupsByPointCount(groups, Number.NaN)).toBe(groups)
     })
   })
 })

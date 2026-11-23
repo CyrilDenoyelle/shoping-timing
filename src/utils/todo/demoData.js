@@ -27,11 +27,11 @@ function demoTodo({ steps, agoFraction, done, quantity, unit }) {
 }
 
 /** Incrémenter quand l'historique de démo change, pour rafraîchir un jeu encore intact. */
-export const DEMO_REVISION = '2'
+export const DEMO_REVISION = '3'
 
 // Produits du jeu de démo. Un produit ajouté, retiré ou renommé bloque le remplacement.
 const STOCK_DEMO = [
-  ['demo-manger', ['Lait', 'Pain', 'Œufs', 'Beurre', 'Pâtes', 'Riz', 'Fruits']],
+  ['demo-manger', ['Lait', 'Pain', 'Œufs', 'Beurre', 'Pâtes', 'Riz', 'Miel', 'Fruits']],
   ['demo-maison', ['Éponges', 'Lessive', 'Liquide vaisselle', 'Sacs poubelle', 'Sopalin']],
   ['demo-hygiene', ['Dentifrice', 'Shampooing', 'Savon']],
 ]
@@ -108,6 +108,13 @@ export const defaultLists = [
       agoFraction: 0.1, done: false, quantity: 1, unit: 'kg',
       steps: [
         { qty: 1, days: 18 }, { qty: 1, days: 45 },
+      ],
+    }) },
+    // Un seul intervalle : la courbe n'a qu'un point, masquée par le filtre « courbes à 1 point ».
+    { id: 16, text: 'Miel', done: true, ...demoTodo({
+      agoFraction: 0.5, done: true, quantity: 1, unit: '',
+      steps: [
+        { qty: 1, days: 40 },
       ],
     }) },
     // Saison serrée, puis une pause de six semaines qui sort de la plage.
