@@ -1,6 +1,6 @@
 import { ref, reactive, watch, computed } from 'vue'
 import { STORAGE_KEYS, LEGACY_SHOPPING_KEYS, defaultStorage } from '@/services/storage'
-import { defaultLists } from '@/utils/todo/demoData.js'
+import { defaultLists, shouldRefreshDemo, DEMO_REVISION } from '@/utils/todo/demoData.js'
 import { getBaseUnit, unitScale } from '@/utils/todo/units.js'
 import { updateTodoAverage, formatMs, getProgress } from '@/utils/todo/todoIntervals.js'
 import { debounce } from '@/utils/debounce.js'
@@ -42,7 +42,9 @@ export function useTodoStorage(storage = defaultStorage) {
   if (instance) return instance
 
   const stored = loadListsFromStorage(storage)
-  const lists = ref(stored ?? defaultLists)
+  const refreshDemo = shouldRefreshDemo(stored, storage.getString(STORAGE_KEYS.DEMO_REVISION))
+  const lists = ref(refreshDemo ? defaultLists : stored)
+  if (refreshDemo) storage.setString(STORAGE_KEYS.DEMO_REVISION, DEMO_REVISION)
 
   let nextTodoId = Math.max(0, ...lists.value.flatMap((l) => l.todos.map((t) => t.id))) + 1
 
