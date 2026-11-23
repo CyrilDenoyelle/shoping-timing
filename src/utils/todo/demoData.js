@@ -110,7 +110,7 @@ export const defaultLists = [
         { qty: 1, days: 18 }, { qty: 1, days: 45 },
       ],
     }) },
-    // Un seul intervalle : la courbe n'a qu'un point, masquée par le filtre « courbes à 1 point ».
+    // Un seul intervalle : la courbe n'a qu'un point, elle n'est jamais affichée.
     { id: 16, text: 'Miel', done: true, ...demoTodo({
       agoFraction: 0.5, done: true, quantity: 1, unit: '',
       steps: [

@@ -36,23 +36,12 @@ function onSearchEscape(event) {
   query.value = ''
 }
 
-const groups = computed(() => buildProductRhythms(props.lists))
+// Une courbe à un seul point est peu lisible : seuls les produits avec au moins deux intervalles sont affichés.
+const MIN_POINTS = 2
+const groups = computed(() => filterGroupsByPointCount(buildProductRhythms(props.lists), MIN_POINTS))
 const productCount = computed(() => groups.value.reduce((sum, g) => sum + g.products.length, 0))
 
-// Courbes à un seul point : peu lisibles, masquées par défaut. Le choix est mémorisé.
-const hideSinglePoints = ref(defaultStorage.getString(STORAGE_KEYS.RHYTHM_HIDE_SINGLE) !== '0')
-watch(hideSinglePoints, (value) => {
-  defaultStorage.setString(STORAGE_KEYS.RHYTHM_HIDE_SINGLE, value ? '1' : '0')
-})
-const singlePointCount = computed(() =>
-  groups.value.reduce((sum, g) => sum + g.products.filter((p) => p.samples.length < 2).length, 0),
-)
-const shownGroups = computed(() =>
-  hideSinglePoints.value ? filterGroupsByPointCount(groups.value, 2) : groups.value,
-)
-const shownCount = computed(() => shownGroups.value.reduce((sum, g) => sum + g.products.length, 0))
-
-const visibleGroups = computed(() => filterProductGroups(shownGroups.value, query.value))
+const visibleGroups = computed(() => filterProductGroups(groups.value, query.value))
 const visibleCount = computed(() => visibleGroups.value.reduce((sum, g) => sum + g.products.length, 0))
 
 // Mise en page : rangées équilibrées selon la largeur disponible (7 cartes sur 3 colonnes → 3, 2, 2)
@@ -140,7 +129,7 @@ const sections = computed(() =>
 )
 
 const resultLabel = computed(() => {
-  const total = shownCount.value
+  const total = productCount.value
   if (isFiltering.value) {
     return `${visibleCount.value} ${plural(visibleCount.value, 'produit', 'produits')} sur ${total}`
   }
@@ -219,10 +208,6 @@ onBeforeUnmount(() => {
           ✕
         </button>
       </form>
-      <label v-if="singlePointCount > 0" class="advanced-toggle">
-        <input v-model="hideSinglePoints" type="checkbox" />
-        Masquer les courbes à 1 point
-      </label>
       <label class="advanced-toggle">
         <input v-model="advanced" type="checkbox" />
         Mode avancé
@@ -232,8 +217,8 @@ onBeforeUnmount(() => {
     <p v-if="productCount > 0" class="rhythm-total" role="status">{{ resultLabel }}</p>
 
     <div v-if="productCount === 0" class="rhythm-empty">
-      Pas encore d’intervalle mesurable. Il faut au moins deux achats d’un même produit : coche-le sur tes
-      listes à deux reprises pour voir sa courbe.
+      Pas encore de courbe à afficher. Il faut au moins trois achats d’un même produit : coche-le sur tes
+      listes à trois reprises pour voir sa courbe.
     </div>
 
     <div v-else-if="visibleCount === 0" class="rhythm-empty">

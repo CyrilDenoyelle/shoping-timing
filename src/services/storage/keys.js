@@ -9,9 +9,7 @@ export const STORAGE_KEYS = {
   QUICK_ADD_LIST: 'shoping-timing-quick-add-list',
   SHOPPING_CATEGORY_ORDER: 'shoping-timing-shopping-category-order',
   DEMO_REVISION: 'shoping-timing-demo-revision',
-  RHYTHM_ADVANCED: 'shoping-timing-rhythm-advanced',
-  RHYTHM_HIDE_SINGLE: 'shoping-timing-rhythm-hide-single',
-}
+  RHYTHM_ADVANCED: 'shoping-timing-rhythm-advanced',}
 
 /** Anciennes clés du second tri manuel (mode courses), supprimées au démarrage. */
 export const LEGACY_SHOPPING_KEYS = [
