@@ -14,6 +14,23 @@ export default defineConfig({
     vueDevTools(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        // OCR local (public/tesseract/) : trop gros pour le précache, mis en cache à la première visite de /receipt.
+        globIgnores: ['**/tesseract/**'],
+        clientsClaim: true,
+        skipWaiting: true,
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/tesseract/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'tesseract-assets',
+              expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
+      },
       includeAssets: ['favicon.ico', 'pwa-512x512.svg', 'apple-touch-icon-180x180.png'],
       manifest: {
         name: 'Shoping Timing',

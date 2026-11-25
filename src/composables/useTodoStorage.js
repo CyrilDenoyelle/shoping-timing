@@ -4,6 +4,7 @@ import { defaultLists, shouldRefreshDemo, DEMO_REVISION } from '@/utils/todo/dem
 import { getBaseUnit, unitScale } from '@/utils/todo/units.js'
 import { updateTodoAverage, formatMs, getProgress } from '@/utils/todo/todoIntervals.js'
 import { debounce } from '@/utils/debounce.js'
+import { planReceiptPurchase, PURCHASE_ACTIONS } from '@/utils/receipt/purchasePlan.js'
 import {
   loadListsFromStorage,
   saveListsToStorage,
@@ -192,7 +193,19 @@ export function useTodoStorage(storage = defaultStorage) {
       quantity: 1,
       unit: '',
       conversions: {},
+      receiptNames: [],
     })
+    return list.todos[list.todos.length - 1]
+  }
+
+  const addReceiptName = (listId, id, name) => {
+    const todo = findTodo(listId, id)
+    const trimmed = String(name ?? '').trim()
+    if (!todo || !trimmed) return
+    if (!Array.isArray(todo.receiptNames)) todo.receiptNames = []
+    const key = trimmed.toLowerCase()
+    if (todo.receiptNames.some((n) => n.toLowerCase() === key)) return
+    todo.receiptNames.push(trimmed)
   }
 
   const findTodo = (listId, id) => {
@@ -242,6 +255,23 @@ export function useTodoStorage(storage = defaultStorage) {
       if (redoStack[i].todoId === id) redoStack.splice(i, 1)
     }
     updateTodoAverage(todo)
+  }
+
+  /**
+   * Enregistre l'achat d'un produit lu sur un ticket.
+   * @returns {'check'|'record'|'skip'|null} action réalisée
+   */
+  const applyReceiptPurchase = (listId, id, { quantity = null, at = Date.now() } = {}) => {
+    const todo = findTodo(listId, id)
+    if (!todo) return null
+    const action = planReceiptPurchase(todo, at)
+    if (action === PURCHASE_ACTIONS.SKIP) return action
+    if (!todo.unit && Number.isFinite(quantity) && quantity >= 1) {
+      todo.quantity = Math.round(quantity)
+    }
+    if (action === PURCHASE_ACTIONS.RECORD) toggleTodo(listId, id)
+    toggleTodo(listId, id)
+    return action
   }
 
   const removeTodo = (listId, id) => {
@@ -425,6 +455,7 @@ export function useTodoStorage(storage = defaultStorage) {
         listId: l.id,
         todoId: t.id,
         done: !!t.done,
+        receiptNames: t.receiptNames ?? [],
       }))
     )
   )
@@ -471,6 +502,8 @@ export function useTodoStorage(storage = defaultStorage) {
     moveShoppingCategory,
     moveTodo,
     addTodo,
+    addReceiptName,
+    applyReceiptPurchase,
     toggleTodo,
     removeTodo,
     renameTodo,

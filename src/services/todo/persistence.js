@@ -19,6 +19,7 @@ function migrateTodo(todo) {
   if (todo.quantity == null) todo.quantity = 1
   if (todo.unit == null) todo.unit = ''
   if (todo.conversions == null) todo.conversions = {}
+  if (!Array.isArray(todo.receiptNames)) todo.receiptNames = []
   updateTodoAverage(todo)
   return todo
 }

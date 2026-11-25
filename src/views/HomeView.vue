@@ -7,6 +7,7 @@ import IconUndo from '@/components/ui/icons/IconUndo.vue'
 import IconRedo from '@/components/ui/icons/IconRedo.vue'
 import IconSort from '@/components/ui/icons/IconSort.vue'
 import IconStats from '@/components/ui/icons/IconStats.vue'
+import IconCamera from '@/components/ui/icons/IconCamera.vue'
 import { useTodoStorage } from '@/composables/useTodoStorage'
 
 const {
@@ -62,6 +63,13 @@ const {
       aria-label="Statistiques des achats"
     >
       <IconStats />
+    </router-link>
+    <router-link
+      :to="{ name: 'receipt' }"
+      class="tool-btn"
+      aria-label="Lire un ticket de caisse"
+    >
+      <IconCamera />
     </router-link>
     <button
       class="tool-btn cart-btn"
