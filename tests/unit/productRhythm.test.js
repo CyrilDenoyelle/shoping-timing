@@ -41,7 +41,7 @@ describe('productRhythm', () => {
     it('labels each reason', () => {
       expect(describeExclusion('too-long')).toBe('trop long')
       expect(describeExclusion('too-short')).toBe('trop court')
-      expect(describeExclusion('trimmed')).toContain('2/3')
+      expect(describeExclusion('trimmed')).toContain('noyau')
       expect(describeExclusion('unknown')).toBe('écarté')
     })
   })
@@ -55,7 +55,10 @@ describe('productRhythm', () => {
       expect(summarizeExclusions({ 'too-long': 1, 'too-short': 0, trimmed: 0 })).toBe('1 trop long')
       expect(summarizeExclusions({ 'too-long': 2, 'too-short': 3, trimmed: 0 })).toBe('2 trop longs · 3 trop courts')
       expect(summarizeExclusions({ 'too-long': 1, 'too-short': 0, trimmed: 5 })).toBe(
-        '1 trop long · 5 hors des 2/3 les plus proches de la médiane',
+        '1 trop long · 5 éloignés du noyau du rythme',
+      )
+      expect(summarizeExclusions({ 'too-long': 0, 'too-short': 0, trimmed: 1 })).toBe(
+        '1 éloigné du noyau du rythme',
       )
     })
   })
@@ -100,7 +103,7 @@ describe('productRhythm', () => {
     })
 
     it('counts the exclusions by reason', () => {
-      // 16 × 7 j + pause de 210 j : 1 trop long, 5 écartés par la règle des 2/3 (cf. tests des intervalles)
+      // 16 × 7 j + pause de 210 j : 1 trop long, 0 trimmed (série régulière dans le noyau)
       const tomatoes = {
         id: 3,
         text: '  Tomates ',
@@ -110,7 +113,7 @@ describe('productRhythm', () => {
       }
       const [{ products }] = buildProductRhythms([{ id: 'l1', name: ' Manger ', todos: [tomatoes] }])
       expect(products[0].text).toBe('Tomates')
-      expect(products[0].exclusions).toEqual({ 'too-long': 1, 'too-short': 0, trimmed: 5 })
+      expect(products[0].exclusions).toEqual({ 'too-long': 1, 'too-short': 0, trimmed: 0 })
     })
 
     it('falls back on a title and tolerates invalid input', () => {
@@ -131,19 +134,20 @@ describe('productRhythm', () => {
         productOf({ id: 1, text: 'Lait', quantity: 2, unit: 'L', timings: timingsFrom([4 * DAY, 4 * DAY, 4 * DAY], [2, 2, 2, 2], 'L') }),
       )
       expect(model.unit.id).toBe('day')
-      expect(model.points.map((p) => p.x)).toEqual([4 * DAY, 8 * DAY, 12 * DAY])
+      // X = ordre des intervalles (espacement uniforme) ; les dates restent dans `at`
+      expect(model.points.map((p) => p.x)).toEqual([0, 1, 2])
+      expect(model.points.map((p) => p.at)).toEqual([4 * DAY, 8 * DAY, 12 * DAY])
       expect(model.points.map((p) => p.y)).toEqual([4, 4, 4])
       expect(model.meanY).toBe(4)
       expect(model.band.upper).toBeCloseTo(13.5, 9)
       expect(model.band.lower).toBeCloseTo(4 / 3.375, 9)
     })
 
-    it('pads the time range around the points', () => {
-      // points du jour 4 au jour 12 : 6 % de 8 j = 0,48 j < 3 j → marge minimale de 3 j
+    it('pads the index range around the points', () => {
       const model = buildRhythmChartModel(
         productOf({ id: 1, text: 'Lait', quantity: 2, unit: 'L', timings: timingsFrom([4 * DAY, 4 * DAY, 4 * DAY], [2, 2, 2, 2], 'L') }),
       )
-      expect(model.xRange).toEqual({ min: 1 * DAY, max: 15 * DAY })
+      expect(model.xRange).toEqual({ min: -0.35, max: 2.35 })
     })
 
     it('sizes points with the square root of the purchased quantity', () => {
@@ -179,7 +183,7 @@ describe('productRhythm', () => {
       expect(pause.y).toBeCloseTo(30, 9)
       expect(pause).toMatchObject({ used: false, exclusion: 'too-long', intervalMs: 210 * DAY })
       expect(model.meanY).toBeCloseTo(1, 9)
-      expect(model.points.filter((p) => p.used)).toHaveLength(11)
+      expect(model.points.filter((p) => p.used)).toHaveLength(16)
     })
 
     it('uses hours for short intervals', () => {

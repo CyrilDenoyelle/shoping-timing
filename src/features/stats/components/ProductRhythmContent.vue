@@ -268,7 +268,7 @@ onBeforeUnmount(() => {
     <ul v-if="advanced && productCount > 0" class="legend" aria-label="Légende">
       <li><span class="lg lg-used" aria-hidden="true" />Utilisé dans le calcul</li>
       <li><span class="lg lg-excluded" aria-hidden="true">✕</span>Trop long ou trop court</li>
-      <li><span class="lg lg-trimmed" aria-hidden="true">✕</span>Hors des 2/3 les plus proches</li>
+      <li><span class="lg lg-trimmed" aria-hidden="true">✕</span>Éloigné du noyau du rythme</li>
       <li><span class="lg lg-band" aria-hidden="true" />Plage retenue</li>
       <li><span class="lg lg-mean" aria-hidden="true" />Rythme retenu</li>
       <li>Taille du point : quantité achetée</li>

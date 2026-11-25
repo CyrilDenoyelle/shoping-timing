@@ -27,26 +27,59 @@ function demoTodo({ steps, agoFraction, done, quantity, unit }) {
 }
 
 /** Incrémenter quand l'historique de démo change, pour rafraîchir un jeu encore intact. */
-export const DEMO_REVISION = '3'
+export const DEMO_REVISION = '6'
 
-// Produits du jeu de démo. Un produit ajouté, retiré ou renommé bloque le remplacement.
+const MANGER = ['Lait', 'Pain', 'Œufs', 'Beurre', 'Pâtes', 'Riz', 'Miel', 'Fruits']
+const LEGUMES = ['Courgettes', 'Asperges', 'Tomates', 'Potiron', 'Épinards']
+const MAISON = ['Éponges', 'Lessive', 'Liquide vaisselle', 'Sacs poubelle', 'Sopalin']
+const HYGIENE = ['Dentifrice', 'Shampooing', 'Savon']
+
+// Catalogue courant. Un produit ajouté, retiré ou renommé bloque le remplacement.
 const STOCK_DEMO = [
-  ['demo-manger', ['Lait', 'Pain', 'Œufs', 'Beurre', 'Pâtes', 'Riz', 'Miel', 'Fruits']],
-  ['demo-maison', ['Éponges', 'Lessive', 'Liquide vaisselle', 'Sacs poubelle', 'Sopalin']],
-  ['demo-hygiene', ['Dentifrice', 'Shampooing', 'Savon']],
+  ['demo-manger', MANGER],
+  ['demo-legumes', LEGUMES],
+  ['demo-maison', MAISON],
+  ['demo-hygiene', HYGIENE],
 ]
 
-/** Vrai quand les listes sont encore exactement le catalogue de démo (mêmes ids, mêmes produits, même ordre). */
-export function isStockCatalog(lists) {
-  if (!Array.isArray(lists) || lists.length !== STOCK_DEMO.length) return false
-  for (let i = 0; i < STOCK_DEMO.length; i++) {
-    const [id, texts] = STOCK_DEMO[i]
+/** Anciennes révisions encore considérées comme « catalogue de démo intact » pour le refresh. */
+const LEGACY_STOCK_DEMOS = [
+  // rév. 5 : légumes encore dans Manger
+  [
+    ['demo-manger', [...MANGER, ...LEGUMES]],
+    ['demo-maison', MAISON],
+    ['demo-hygiene', HYGIENE],
+  ],
+  // rév. 4 : Courgettes seule
+  [
+    ['demo-manger', [...MANGER, 'Courgettes']],
+    ['demo-maison', MAISON],
+    ['demo-hygiene', HYGIENE],
+  ],
+  // rév. 3 : Miel, sans légumes de saison
+  [
+    ['demo-manger', MANGER],
+    ['demo-maison', MAISON],
+    ['demo-hygiene', HYGIENE],
+  ],
+]
+
+function matchesStockShape(lists, stock) {
+  if (!Array.isArray(lists) || lists.length !== stock.length) return false
+  for (let i = 0; i < stock.length; i++) {
+    const [id, texts] = stock[i]
     const list = lists[i]
     if (list?.id !== id) return false
     const todos = list.todos ?? []
     if (todos.length !== texts.length || todos.some((todo, j) => todo.text !== texts[j])) return false
   }
   return true
+}
+
+/** Vrai quand les listes sont encore exactement un catalogue de démo (courant ou legacy). */
+export function isStockCatalog(lists) {
+  if (matchesStockShape(lists, STOCK_DEMO)) return true
+  return LEGACY_STOCK_DEMOS.some((stock) => matchesStockShape(lists, stock))
 }
 
 /**
@@ -124,6 +157,64 @@ export const defaultLists = [
         { qty: 1, days: 4 }, { qty: 1, days: 5 }, { qty: 2, days: 11 }, { qty: 1, days: 6 },
         { qty: 1, days: 4.5 }, { qty: 1, days: 7 }, { qty: 1, days: 3.5 }, { qty: 1, days: 8 },
         { qty: 1, days: 42 }, { qty: 1, days: 5 }, { qty: 1, days: 6 }, { qty: 1, days: 4 },
+      ],
+    }) },
+  ]},
+  { id: 'demo-legumes', name: 'Légumes', todos: [
+    // Été : hebdo ×1, dernier de saison ×5 (gros stock), ~5 mois hors saison, reprise récente.
+    { id: 17, text: 'Courgettes', done: false, ...demoTodo({
+      agoFraction: 0.2, done: false, quantity: 1, unit: 'kg',
+      steps: [
+        { qty: 1, days: 7 }, { qty: 1, days: 6 }, { qty: 1, days: 8 }, { qty: 1, days: 7 },
+        { qty: 1, days: 7 }, { qty: 1, days: 5 }, { qty: 1, days: 8 }, { qty: 1, days: 7 },
+        { qty: 1, days: 6 }, { qty: 1, days: 7 }, { qty: 1, days: 8 },
+        { qty: 5, days: 150 },
+        { qty: 1, days: 7 }, { qty: 1, days: 6 }, { qty: 1, days: 7 },
+      ],
+    }) },
+    // Printemps court : saison déjà bien avancée, pause longue au milieu de l'historique.
+    { id: 18, text: 'Asperges', done: true, ...demoTodo({
+      agoFraction: 0.55, done: true, quantity: 1, unit: 'botte',
+      steps: [
+        { qty: 1, days: 5 }, { qty: 1, days: 6 }, { qty: 1, days: 4 }, { qty: 1, days: 7 },
+        { qty: 1, days: 5 }, { qty: 1, days: 6 },
+        { qty: 1, days: 280 },
+        { qty: 1, days: 5 }, { qty: 1, days: 4 }, { qty: 1, days: 6 }, { qty: 1, days: 5 },
+        { qty: 1, days: 7 }, { qty: 1, days: 4 }, { qty: 1, days: 6 },
+      ],
+    }) },
+    // Été long : deux saisons visibles, on est en plein milieu de la saison actuelle.
+    { id: 19, text: 'Tomates', done: false, ...demoTodo({
+      agoFraction: 0.45, done: false, quantity: 1, unit: 'kg',
+      steps: [
+        { qty: 1, days: 6 }, { qty: 1, days: 5 }, { qty: 1, days: 7 }, { qty: 1, days: 6 },
+        { qty: 1, days: 8 }, { qty: 1, days: 5 }, { qty: 1, days: 7 }, { qty: 1, days: 6 },
+        { qty: 1, days: 200 },
+        { qty: 1, days: 6 }, { qty: 1, days: 7 }, { qty: 1, days: 5 }, { qty: 1, days: 8 },
+        { qty: 1, days: 6 }, { qty: 1, days: 7 }, { qty: 1, days: 5 }, { qty: 1, days: 6 },
+        { qty: 1, days: 7 },
+      ],
+    }) },
+    // Automne : saison courte qui vient de démarrer après une longue pause.
+    { id: 20, text: 'Potiron', done: false, ...demoTodo({
+      agoFraction: 0.15, done: false, quantity: 1, unit: '',
+      steps: [
+        { qty: 1, days: 10 }, { qty: 1, days: 12 }, { qty: 1, days: 9 }, { qty: 1, days: 11 },
+        { qty: 1, days: 14 }, { qty: 1, days: 10 },
+        { qty: 1, days: 240 },
+        { qty: 1, days: 11 }, { qty: 1, days: 9 },
+      ],
+    }) },
+    // Hiver : rythme un peu plus espacé, fin de saison proche (pause encore à venir).
+    { id: 21, text: 'Épinards', done: true, ...demoTodo({
+      agoFraction: 0.85, done: true, quantity: 1, unit: 'botte',
+      steps: [
+        { qty: 1, days: 9 }, { qty: 1, days: 11 }, { qty: 1, days: 8 }, { qty: 1, days: 10 },
+        { qty: 1, days: 12 }, { qty: 1, days: 9 }, { qty: 1, days: 10 }, { qty: 1, days: 8 },
+        { qty: 1, days: 11 }, { qty: 1, days: 9 }, { qty: 1, days: 10 },
+        { qty: 1, days: 190 },
+        { qty: 1, days: 9 }, { qty: 1, days: 11 }, { qty: 1, days: 8 }, { qty: 1, days: 10 },
+        { qty: 1, days: 12 }, { qty: 1, days: 9 },
       ],
     }) },
   ]},

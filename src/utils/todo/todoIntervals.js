@@ -14,9 +14,10 @@ const MAD_TO_SIGMA = 1.4826
 const MIN_LOG_SPREAD = Math.log(1.5)
 // Nombre minimal d'intervalles conservés après exclusion des aberrants.
 const MIN_KEPT = 2
-// Jusqu'à ce nombre d'intervalles retenus, aucun rognage supplémentaire.
-const KEEP_ALL_UP_TO = 6
-// Au-delà, on garde max(KEEP_ALL_UP_TO, ⌈2/3 × n⌉) intervalles, les plus proches de la médiane.
+// Noyau interne : seuls les intervalles au-delà de INNER_K × spread sont candidats au rognage souple.
+const INNER_K = 1.5
+// Plancher du rognage souple : on conserve au moins ⌈MIN_KEEP_FRACTION × n⌉ des intervalles encore dans la bande.
+const MIN_KEEP_FRACTION = 2 / 3
 
 /**
  * Médiane pondérée (médiane basse) : première valeur triée dont le poids cumulé atteint la moitié du total.
@@ -55,24 +56,27 @@ function collectSamples(todo) {
   return samples
 }
 
-/** Parmi `indices`, garde les `count` plus proches (distance minimale) ; à égalité, le plus récent. */
-function takeClosest(indices, distances, count) {
+/**
+ * Parmi `indices`, garde les `count` plus proches (distance minimale) ;
+ * à égalité, le plus gros poids, puis le plus récent.
+ */
+function takeClosest(indices, distances, weights, count) {
   return [...indices]
-    .sort((a, b) => distances[a] - distances[b] || b - a)
+    .sort((a, b) => distances[a] - distances[b] || weights[b] - weights[a] || b - a)
     .slice(0, count)
 }
 
 /**
  * @typedef {'too-long' | 'too-short' | 'trimmed'} ExclusionReason
  * - too-long / too-short : taux hors de la plage tolérée autour de la médiane ;
- * - trimmed : dans la plage, mais écarté par la règle des ⌈2/3⌉ les plus proches de la médiane.
+ * - trimmed : dans la plage externe, mais hors du noyau interne (rognage souple, plancher ⌈2/3⌉).
  */
 
 /**
  * Décide quels intervalles représentent le rythme du produit :
  * 1. exclut ceux dont le taux s'éloigne trop de la médiane pondérée (seuil adaptatif à la dispersion du produit) ;
  * 2. garantit au moins MIN_KEPT intervalles ;
- * 3. au-delà de KEEP_ALL_UP_TO, ne garde que les ⌈2/3⌉ les plus proches de la médiane.
+ * 3. rogne souplement les intervalles hors du noyau interne, sans descendre sous ⌈2/3⌉ des points encore retenus.
  * `median`, `lowerRate` et `upperRate` valent null quand le filtre ne s'applique pas (moins de 3 intervalles).
  * @returns {{ used: boolean[], reasons: (ExclusionReason | null)[], median: number | null, lowerRate: number | null, upperRate: number | null }}
  */
@@ -89,6 +93,7 @@ function classifySamples(samples) {
   const distances = samples.map((s) => Math.abs(Math.log(s.rate / median)))
   const spread = Math.max(MAD_TO_SIGMA * weightedMedian(distances, weights), MIN_LOG_SPREAD)
   const limit = OUTLIER_K * spread
+  const coreLimit = INNER_K * spread
 
   const all = samples.map((_, i) => i)
   let kept = all.filter((i) => distances[i] <= limit)
@@ -96,14 +101,22 @@ function classifySamples(samples) {
     if (distances[i] > limit) reasons[i] = samples[i].rate > median ? 'too-long' : 'too-short'
   }
   if (kept.length < MIN_KEPT) {
-    kept = takeClosest(all, distances, MIN_KEPT)
+    kept = takeClosest(all, distances, weights, MIN_KEPT)
     for (const i of kept) reasons[i] = null
   }
-  if (kept.length > KEEP_ALL_UP_TO) {
-    const target = Math.max(KEEP_ALL_UP_TO, Math.ceil((2 * kept.length) / 3))
-    const retained = new Set(takeClosest(kept, distances, target))
-    for (const i of kept) if (!retained.has(i)) reasons[i] = 'trimmed'
+
+  // Rognage souple : hors noyau seulement, du plus loin au plus près ; petit poids d'abord ; plancher ⌈2/3⌉.
+  const minKeep = Math.ceil(MIN_KEEP_FRACTION * kept.length)
+  let remaining = kept.length
+  const candidates = kept
+    .filter((i) => distances[i] > coreLimit)
+    .sort((a, b) => distances[b] - distances[a] || weights[a] - weights[b] || a - b)
+  for (const i of candidates) {
+    if (remaining - 1 < minKeep) break
+    reasons[i] = 'trimmed'
+    remaining -= 1
   }
+
   for (const i of all) used[i] = reasons[i] == null
 
   return {

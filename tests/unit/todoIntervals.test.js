@@ -192,12 +192,11 @@ describe('todoIntervals', () => {
 
     it('drops the 30-week off-season gap of a seasonal product', () => {
       // 16 intervalles de 7 j + 1 pause de 210 j (30 semaines), tous de quantité 1
-      // sans filtre : (16×7 + 210) / 17 = 18,94 j ; avec filtre : médiane 7 j, MAD 0
-      // → écart robuste plancher ln 1,5 → limite 3×0,405 = 1,216 ; ln(210/7) = 3,40 > 1,216 → exclu
-      // 16 restants > 6 → on garde max(6, ⌈32/3⌉ = 11) = 11 intervalles de 7 j
+      // médiane 7 j, MAD 0 → écart robuste plancher ln 1,5 → limite 3×0,405 = 1,216
+      // ln(210/7) = 3,40 > 1,216 → too-long ; les 16 à distance 0 restent dans le noyau → tous gardés
       const result = stats([...Array(16).fill(7 * DAY), 210 * DAY])
       expect(result.totalCount).toBe(17)
-      expect(result.usedCount).toBe(11)
+      expect(result.usedCount).toBe(16)
       expect(result.averageMs).toBe(7 * DAY)
       expect(result.stdDevMs).toBe(0)
     })
@@ -247,17 +246,20 @@ describe('todoIntervals', () => {
       expect(result.stdDevMs).toBeCloseTo(Math.sqrt(9_604_000 / 121), 6)
     })
 
-    it('keeps all intervals up to 6 samples', () => {
-      // 1..6 j : médiane 3 j, MAD 0,405 → limite 1,80 ≥ ln 3 = 1,10 → rien d'exclu ; 6 ≤ 6 → tout gardé
-      // moyenne = 21/6 = 3,5 j
+    it('soft-trims only intervals outside the inner core', () => {
+      // 1..6 j : médiane 3 j, MAD 0,405 → spread 0,60 ; bande externe 1,80 ; noyau 0,90
+      // ln(1/3)=1,10 > 0,90 → seul candidat trimmed ; plancher ⌈4⌉ = 4 → 5 gardés (2..6)
+      // moyenne = 20/5 = 4 j ; variance = (4+1+0+1+4)/5 = 2
       const result = stats([1, 2, 3, 4, 5, 6].map((d) => d * DAY))
-      expect(result.usedCount).toBe(6)
-      expect(result.averageMs).toBeCloseTo(3.5 * DAY, 3)
+      expect(result.totalCount).toBe(6)
+      expect(result.usedCount).toBe(5)
+      expect(result.averageMs).toBeCloseTo(4 * DAY, 3)
+      expect(result.stdDevMs).toBeCloseTo(Math.sqrt(2) * DAY, 3)
     })
 
-    it('starts trimming with the 7th interval', () => {
-      // 1..7 j : rien d'exclu par le seuil ; 7 > 6 → max(6, ⌈14/3⌉ = 5) = 6 gardés
-      // médiane 4 j : le plus éloigné est 1 j (ln 4 = 1,39) → gardés 2..7 j
+    it('soft-trims the farthest mild outlier among seven samples', () => {
+      // 1..7 j : médiane 4 j, MAD 0,405 → spread 0,60 ; noyau 0,90
+      // ln(1/4)=1,39 > 0,90 → trimmed ; ln(2/4)=0,69 < 0,90 → gardé
       // moyenne = 27/6 = 4,5 j ; variance = 17,5/6
       const result = stats([1, 2, 3, 4, 5, 6, 7].map((d) => d * DAY))
       expect(result.totalCount).toBe(7)
@@ -266,16 +268,35 @@ describe('todoIntervals', () => {
       expect(result.stdDevMs).toBeCloseTo(Math.sqrt(17.5 / 6) * DAY, 3)
     })
 
-    it('keeps the 2/3 closest to the median beyond 6 samples', () => {
-      // 1..10 j : médiane 5 j ; MAD = 0,47 → limite 2,09 > ln 5 = 1,61 → rien d'exclu par le seuil
-      // 10 > 6 → max(6, ⌈20/3⌉ = 7) = 7 gardés : les plus proches de 5 j en distance log
-      // distances : 5→0 ; 6→0,18 ; 4→0,22 ; 7→0,34 ; 8→0,47 ; 3→0,51 ; 9→0,59 ; (10→0,69 ; 2→0,92 ; 1→1,61)
-      // gardés 3..9 j : moyenne = 42/7 = 6 j ; variance = (9+4+1+0+1+4+9)/7 = 4 → σ = 2 j
+    it('keeps nearly all of a mild spread when only the fringe exceeds the core', () => {
+      // 1..10 j : médiane 5 j ; MAD ≈ 0,47 → spread ≈ 0,70 ; noyau ≈ 1,05
+      // seul 1 j (ln 5 ≈ 1,61) dépasse le noyau → 9 gardés (2..10)
+      // moyenne = 54/9 = 6 j ; variance = 60/9
       const result = stats([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((d) => d * DAY))
       expect(result.totalCount).toBe(10)
-      expect(result.usedCount).toBe(7)
+      expect(result.usedCount).toBe(9)
       expect(result.averageMs).toBeCloseTo(6 * DAY, 3)
-      expect(result.stdDevMs).toBeCloseTo(2 * DAY, 3)
+      expect(result.stdDevMs).toBeCloseTo(Math.sqrt(60 / 9) * DAY, 3)
+    })
+
+    it('keeps every identical interval of a long regular series', () => {
+      const result = stats(Array(20).fill(7 * DAY))
+      expect(result.totalCount).toBe(20)
+      expect(result.usedCount).toBe(20)
+      expect(result.averageMs).toBe(7 * DAY)
+      expect(result.stdDevMs).toBe(0)
+    })
+
+    it('prefers trimming the lighter sample when two fringe points share a distance', () => {
+      // 3 × (20 j / 2 u = 10 j/u) + (22 j / 1 u) + (88 j / 4 u) : même taux frange 22 j/u
+      // médiane pondérée 10, MAD 0 → noyau ≈ 0,61 ; ln(22/10) ≈ 0,79 → deux candidats
+      // plancher ⌈2/3×5⌉ = 4 → un seul trimmed : le qty 1
+      const result = stats(
+        [20 * DAY, 20 * DAY, 20 * DAY, 22 * DAY, 88 * DAY],
+        [2, 2, 2, 1, 4, 1],
+      )
+      expect(result.totalCount).toBe(5)
+      expect(result.usedCount).toBe(4)
     })
   })
 
@@ -316,20 +337,28 @@ describe('todoIntervals', () => {
       expect(analysis.samples.every((s) => s.used && s.exclusion === null)).toBe(true)
     })
 
-    it('flags the off-season gap as too long and the oldest regular intervals as trimmed', () => {
+    it('flags the off-season gap as too long and keeps every regular interval', () => {
       // 16 × 7 j + 210 j : médiane 7 j, plage = 7 j × / ÷ 1,5³ (= 3,375)
       // borne haute = 23,625 j ; borne basse = 7 / 3,375 = 2,074 j
-      // pause (indice 16) : 210 j > 23,625 j → too-long
-      // 16 restants > 6 → 11 gardés ; distances toutes nulles → à égalité on garde les plus récents
-      // → indices 5..15 utilisés, indices 0..4 trimmed
+      // pause (indice 16) : 210 j > 23,625 j → too-long ; distances nulles → aucun trimmed
       const analysis = analyze([...Array(16).fill(7 * DAY), 210 * DAY])
       expect(analysis.medianMs).toBe(7 * DAY)
       expect(analysis.upperMs).toBeCloseTo(23.625 * DAY, 3)
       expect(analysis.lowerMs).toBeCloseTo((7 / 3.375) * DAY, 3)
       const { samples } = analysis
       expect(samples[16]).toMatchObject({ used: false, exclusion: 'too-long' })
-      for (let i = 0; i <= 4; i++) expect(samples[i]).toMatchObject({ used: false, exclusion: 'trimmed' })
-      for (let i = 5; i <= 15; i++) expect(samples[i]).toMatchObject({ used: true, exclusion: null })
+      for (let i = 0; i <= 15; i++) expect(samples[i]).toMatchObject({ used: true, exclusion: null })
+    })
+
+    it('flags a fringe interval as trimmed and prefers dropping the lighter weight', () => {
+      // 3 × (20 j / 2 u) + (22 j / 1 u) + (88 j / 4 u) : un seul trimmed (qty 1), le qty 4 reste
+      const analysis = analyze(
+        [20 * DAY, 20 * DAY, 20 * DAY, 22 * DAY, 88 * DAY],
+        [2, 2, 2, 1, 4, 1],
+      )
+      expect(analysis.samples[3]).toMatchObject({ used: false, exclusion: 'trimmed', qty: 1 })
+      expect(analysis.samples[4]).toMatchObject({ used: true, exclusion: null, qty: 4 })
+      expect(analysis.samples.filter((s) => s.used)).toHaveLength(4)
     })
 
     it('flags a very short interval as too short', () => {

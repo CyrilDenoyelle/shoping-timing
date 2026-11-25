@@ -17,6 +17,7 @@ import {
 } from '@/utils/stats/productRhythm.js'
 import { formatPurchaseQtyLabel } from '@/utils/stats/purchaseTimeline.js'
 import { fitLogRange } from '@/utils/stats/chartZoom.js'
+import { pickRhythmXTicks } from '@/utils/stats/rhythmAxisTicks.js'
 import {
   countOutOfRhythm,
   describeForecast,
@@ -27,6 +28,7 @@ import {
 import { useChartZoom } from '@/composables/useChartZoom.js'
 import { DAY } from '@/utils/time.js'
 import { rhythmGuidesPlugin } from '@/features/stats/chart/rhythmGuidesPlugin.js'
+import { rhythmXTicksPlugin } from '@/features/stats/chart/rhythmXTicksPlugin.js'
 
 ChartJS.register(Tooltip, LineElement, PointElement, LinearScale, LogarithmicScale)
 
@@ -43,7 +45,7 @@ const props = defineProps({
 
 const emit = defineEmits(['toggle-expand'])
 
-const plugins = [rhythmGuidesPlugin]
+const plugins = [rhythmGuidesPlugin, rhythmXTicksPlugin]
 
 const numberFormat = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 })
 // Graduations de l'axe : 2 chiffres significatifs gardent lisibles les petites valeurs (0,12) comme les grandes (1 200).
@@ -135,7 +137,7 @@ const chartData = computed(() => {
         pointRadius: (ctx) => ctx.raw.radius,
         pointHoverRadius: (ctx) => ctx.raw.radius + 2,
         pointBackgroundColor: (ctx) => (ctx.raw.used ? t.accent : 'transparent'),
-        // Aberrants (trop long / trop court) en rouge ; simples écartés par la règle des 2/3 en gris.
+        // Aberrants (trop long / trop court) en rouge ; éloignés du noyau (trimmed) en gris.
         pointBorderColor: (ctx) => {
           if (ctx.raw.used) return t.accent
           if (!props.advanced) return t.muted
@@ -152,16 +154,30 @@ const chartOptions = computed(() => {
   const t = props.theme
   const { unit, band, meanY, points } = model.value
   const { min: xMin, max: xMax } = view.value
-  const span = xMax - xMin
-  // Le format des repères suit la durée affichée : mois et année, jour et mois, ou heure quand la vue est très serrée.
-  const tickFormat =
-    span > 330 * DAY
-      ? { month: 'short', year: 'numeric' }
-      : span < 4 * DAY
-        ? { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }
-        : { day: 'numeric', month: 'short' }
-  const formatTick = (ms) => new Date(ms).toLocaleDateString('fr-FR', tickFormat)
+  // Carte étroite : 5 dates max ; 8 en plein écran. X = indice d'intervalle (espacement uniforme).
+  const maxXTicks = props.expanded ? 8 : 5
+  const xTickValues = pickRhythmXTicks(points, xMin, xMax, maxXTicks)
+  const pointByX = new Map(points.map((p) => [p.x, p]))
+  const labeledAts = xTickValues.map((x) => pointByX.get(x)?.at).filter((at) => Number.isFinite(at))
+  const atSpan =
+    labeledAts.length >= 2 ? labeledAts[labeledAts.length - 1] - labeledAts[0] : 0
+  const yearsSpan =
+    labeledAts.length >= 2 &&
+    new Date(labeledAts[0]).getFullYear() !== new Date(labeledAts[labeledAts.length - 1]).getFullYear()
   const durationText = (value) => `${numberFormat.format(value)} ${unit.label}`
+  // Deux lignes : date d'achat, puis durée de l'intervalle (déjà portée par la hauteur du point).
+  const formatTick = (index) => {
+    const point = pointByX.get(index)
+    if (!point || !Number.isFinite(point.at)) return ''
+    const d = new Date(point.at)
+    const dateLabel =
+      atSpan < 4 * DAY
+        ? d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+        : yearsSpan
+          ? `${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} ${String(d.getFullYear()).slice(2)}`
+          : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+    return [dateLabel, durationText(point.y)]
+  }
   const forSelector = hasSelector.value ? ` pour ${props.product.selectorLabel}` : ''
 
   // Axe logarithmique : un intervalle 3 fois trop long et un 3 fois trop court sont à égale distance de la médiane,
@@ -198,7 +214,7 @@ const chartOptions = computed(() => {
     // Les mises à jour du zoom suivent le doigt ou le curseur sans transition.
     animation: false,
     interaction: { mode: 'nearest', intersect: false },
-    layout: { padding: { left: 0, right: 8, top: 6, bottom: 0 } },
+    layout: { padding: { left: 0, right: 8, top: 6, bottom: 2 } },
     plugins: {
       legend: { display: false },
       rhythmGuides: {
@@ -207,10 +223,15 @@ const chartOptions = computed(() => {
         mean: meanY,
         meanColor: t.accent,
       },
+      rhythmXTicks: {
+        color: t.muted,
+        guides: props.expanded,
+        guideColor: t.border,
+      },
       tooltip: {
         displayColors: false,
         callbacks: {
-          title: (items) => `Achat du ${fullDate(items[0].raw.x)}`,
+          title: (items) => `Achat du ${fullDate(items[0].raw.at)}`,
           label: (ctx) => {
             const p = ctx.raw
             if (!props.advanced) {
@@ -230,11 +251,25 @@ const chartOptions = computed(() => {
         type: 'linear',
         min: xMin,
         max: xMax,
-        grid: { display: false },
+        border: { display: true, color: t.border },
+        // Traits natifs Chart.js + plugin (filet de sécurité si le padding varie).
+        grid: {
+          display: true,
+          drawOnChartArea: false,
+          drawTicks: true,
+          tickLength: 6,
+          tickWidth: 1.25,
+          tickColor: t.muted,
+          color: 'transparent',
+        },
+        afterBuildTicks: (axis) => {
+          axis.ticks = xTickValues.map((value) => ({ value }))
+        },
         ticks: {
           color: t.muted,
-          maxTicksLimit: 4,
+          autoSkip: false,
           maxRotation: 0,
+          padding: 6,
           font: { size: 10 },
           callback: (value) => formatTick(value),
         },

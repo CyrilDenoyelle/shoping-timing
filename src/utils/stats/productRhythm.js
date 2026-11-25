@@ -26,7 +26,7 @@ export function durationUnitFor(maxMs) {
 const EXCLUSION_LABELS = {
   'too-long': 'trop long',
   'too-short': 'trop court',
-  trimmed: 'écarté (hors des 2/3 les plus proches de la médiane)',
+  trimmed: 'écarté (éloigné du noyau du rythme)',
 }
 
 /** Libellé lisible de la raison pour laquelle un intervalle est écarté du calcul. */
@@ -35,7 +35,7 @@ export function describeExclusion(reason) {
 }
 
 /**
- * Résumé court des intervalles écartés d'un produit, ex. « 1 trop long · 5 hors des 2/3 les plus proches ».
+ * Résumé court des intervalles écartés d'un produit, ex. « 1 trop long · 2 éloignés du noyau du rythme ».
  * Chaîne vide quand aucun intervalle n'est écarté.
  * @param {{ 'too-long': number, 'too-short': number, trimmed: number }} counts
  */
@@ -43,7 +43,13 @@ export function summarizeExclusions(counts) {
   const parts = []
   if (counts['too-long'] > 0) parts.push(`${counts['too-long']} trop long${counts['too-long'] > 1 ? 's' : ''}`)
   if (counts['too-short'] > 0) parts.push(`${counts['too-short']} trop court${counts['too-short'] > 1 ? 's' : ''}`)
-  if (counts.trimmed > 0) parts.push(`${counts.trimmed} hors des 2/3 les plus proches de la médiane`)
+  if (counts.trimmed > 0) {
+    parts.push(
+      counts.trimmed === 1
+        ? '1 éloigné du noyau du rythme'
+        : `${counts.trimmed} éloignés du noyau du rythme`,
+    )
+  }
   return parts.join(' · ')
 }
 
@@ -142,8 +148,9 @@ const POINT_RADIUS_SPAN = 6
 const UNIFORM_POINT_RADIUS = 5
 
 /**
- * Données prêtes à tracer pour un produit : un point par intervalle (date de l'achat qui le ferme,
- * durée ramenée au sélecteur), la plage tolérée et le rythme retenu, tous dans la même unité.
+ * Données prêtes à tracer pour un produit : un point par intervalle.
+ * L'axe X est l'ordre des intervalles (espacement uniforme) : la durée n'est portée que par Y.
+ * `at` / `from` restent les dates réelles pour les libellés et l'infobulle.
  * @param {ReturnType<typeof buildProductRhythms>[number]['products'][number]} product
  */
 export function buildRhythmChartModel(product) {
@@ -154,9 +161,10 @@ export function buildRhythmChartModel(product) {
   const radiusOf = (qty) =>
     uniformWeights ? UNIFORM_POINT_RADIUS : MIN_POINT_RADIUS + POINT_RADIUS_SPAN * Math.sqrt(qty / maxQty)
 
-  const points = samples.map((s) => ({
-    x: s.at,
+  const points = samples.map((s, i) => ({
+    x: i,
     y: s.scaledMs / unit.ms,
+    at: s.at,
     from: s.from,
     intervalMs: s.interval,
     qty: s.qty,
@@ -165,16 +173,13 @@ export function buildRhythmChartModel(product) {
     radius: radiusOf(s.qty),
   }))
 
-  const xs = points.map((p) => p.x)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const pad = Math.max((maxX - minX) * 0.06, 3 * DAY)
+  const pad = 0.35
 
   return {
     unit,
     points,
     meanY: Number.isFinite(stats.averageMs) ? stats.averageMs / unit.ms : null,
     band: lowerMs == null ? null : { lower: lowerMs / unit.ms, upper: upperMs / unit.ms },
-    xRange: { min: minX - pad, max: maxX + pad },
+    xRange: { min: -pad, max: points.length - 1 + pad },
   }
 }
