@@ -7,6 +7,7 @@ export function buildVirtualRows({
   shoppingTodos = [],
   displayLists = [],
   manualSort = false,
+  selectedListId = null,
 }) {
   const rows = []
 
@@ -76,6 +77,14 @@ export function buildVirtualRows({
         })
       }
     }
+
+    if (selectedListId === list.id) {
+      rows.push({
+        type: 'list-add',
+        key: `a-${list.id}`,
+        listId: list.id,
+      })
+    }
   }
 
   rows.push({ type: 'add-list', key: 'add-list' })
@@ -94,6 +103,8 @@ export function estimateRowSize(row) {
       return row.compact ? 28 : 44
     case 'list-empty':
       return 22
+    case 'list-add':
+      return 44
     case 'shopping-end':
       return 24
     case 'add-list':

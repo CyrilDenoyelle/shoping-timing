@@ -38,6 +38,40 @@ describe('buildVirtualRows', () => {
     expect(findListHeaderRowIndex(rows, 'b')).toBe(3)
   })
 
+  it('appends a list-add row under the selected category', () => {
+    const rows = buildVirtualRows({
+      displayLists: lists,
+      manualSort: true,
+      selectedListId: 'a',
+    })
+    expect(rows.map((r) => r.type)).toEqual([
+      'list-header',
+      'todo',
+      'todo',
+      'list-add',
+      'list-header',
+      'list-empty',
+      'add-list',
+    ])
+    expect(rows[3].listId).toBe('a')
+
+    const emptySelected = buildVirtualRows({
+      displayLists: lists,
+      manualSort: true,
+      selectedListId: 'b',
+    })
+    expect(emptySelected.map((r) => r.type)).toEqual([
+      'list-header',
+      'todo',
+      'todo',
+      'list-header',
+      'list-empty',
+      'list-add',
+      'add-list',
+    ])
+    expect(emptySelected[5].listId).toBe('b')
+  })
+
   it('prepends shopping todos when shopping mode is on', () => {
     const rows = buildVirtualRows({
       shoppingMode: true,
@@ -92,6 +126,7 @@ describe('estimateRowSize', () => {
     expect(estimateRowSize({ type: 'shopping-category', isFirstCategory: true })).toBe(20)
     expect(estimateRowSize({ type: 'shopping-category', isFirstCategory: false })).toBe(26)
     expect(estimateRowSize({ type: 'todo', compact: true })).toBe(28)
+    expect(estimateRowSize({ type: 'list-add' })).toBe(44)
     expect(estimateRowSize({ type: 'add-list' })).toBe(56)
   })
 })

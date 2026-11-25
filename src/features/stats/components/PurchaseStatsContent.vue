@@ -13,6 +13,7 @@ import {
 import {
   collectPurchaseEvents,
   buildTimelineSeries,
+  breakdownBucketForTooltipRows,
   formatPurchaseQtyLabel,
   TIMELINE_PERIODS,
 } from '@/utils/stats/purchaseTimeline'
@@ -279,11 +280,22 @@ const chartMinHeight = computed(() => {
 
 const chartOptions = computed(() => {
   const t = theme.value
-  const tooltipRowsPerBucket = series.value.tooltipRowsPerBucket ?? []
+  const bucketEvents = series.value.bucketEvents ?? []
+  /** @type {Map<number, ReturnType<typeof breakdownBucketForTooltipRows>>} */
+  const tooltipCache = new Map()
+  const tooltipDetailFor = (dataIndex) => {
+    let detail = tooltipCache.get(dataIndex)
+    if (!detail) {
+      detail = breakdownBucketForTooltipRows(bucketEvents[dataIndex] ?? [])
+      tooltipCache.set(dataIndex, detail)
+    }
+    return detail
+  }
   return {
     indexAxis: 'y',
     responsive: true,
     maintainAspectRatio: false,
+    animation: false,
     // Événements explicites : même défaut que Chart.js, utile pour le suivi tactile.
     events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
     // Avec barres horizontales, l’échelle catégorielle est sur Y : sans axis: 'y',
@@ -344,7 +356,7 @@ const chartOptions = computed(() => {
           const dataIndex = dp.dataIndex
           const periodLabel = chart.data.labels[dataIndex] ?? ''
           const n = Number(dp.raw) || 0
-          const detail = tooltipRowsPerBucket[dataIndex] ?? { items: [] }
+          const detail = tooltipDetailFor(dataIndex)
 
           const totalLine =
             n === 0 ? 'Aucun achat' : n === 1 ? '1 achat en tout' : `${n} achats en tout`

@@ -1,8 +1,15 @@
 <script setup>
 import { computed, nextTick, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useVirtualizer } from '@tanstack/vue-virtual'
 import ProductRhythmChart from '@/features/stats/components/ProductRhythmChart.vue'
 import { buildProductRhythms, filterGroupsByPointCount, filterProductGroups } from '@/utils/stats/productRhythm.js'
-import { balancedRows, cardSpansAround } from '@/utils/stats/gridLayout.js'
+import {
+  buildRhythmVirtualRows,
+  estimateRhythmRowSize,
+  findCardRowIndex,
+  CARD_ROW_ESTIMATE_PX,
+  GROUP_HEADER_ESTIMATE_PX,
+} from '@/utils/stats/rhythmVirtualRows.js'
 import { useContainerColumns } from '@/composables/useContainerColumns.js'
 import { readChartTheme } from '@/features/stats/chart/theme.js'
 import { STORAGE_KEYS, defaultStorage } from '@/services/storage'
@@ -55,12 +62,24 @@ const scroller = ref(null)
 const toolbarEl = ref(null)
 const viewportHeight = ref(0)
 const toolbarHeight = ref(0)
+const listOffsetRef = ref(0)
 const EXPANDED_MARGIN_PX = 8
 const EXPANDED_MIN_HEIGHT_PX = 320
 
 function measureViewport() {
   viewportHeight.value = scroller.value?.clientHeight ?? 0
   toolbarHeight.value = toolbarEl.value?.offsetHeight ?? 0
+}
+
+function updateListOffset() {
+  const scroll = scroller.value
+  const list = groupsEl.value
+  if (!scroll || !list) {
+    listOffsetRef.value = 0
+    return
+  }
+  listOffsetRef.value =
+    list.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop
 }
 
 // Hauteur de la zone visible sous la barre d'outils collée : la carte agrandie la remplit.
@@ -85,19 +104,6 @@ function setCardRef(key, component) {
 }
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-watch(expandedKey, async (key) => {
-  if (!key) return
-  await nextTick()
-  const card = cardComponents.get(key)?.$el
-  const container = scroller.value
-  if (!card || !container) return
-  const offset = card.getBoundingClientRect().top - container.getBoundingClientRect().top - toolbarHeight.value
-  container.scrollTo({
-    top: container.scrollTop + offset,
-    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-  })
-})
-
 // Une carte filtrée n'est plus à l'écran : l'état agrandi retombe.
 const visibleKeys = computed(() => new Set(visibleGroups.value.flatMap((g) => g.products.map((p) => p.key))))
 watch(visibleKeys, (keys) => {
@@ -116,16 +122,92 @@ function onEscapeCapture(event) {
 const fillsScreen = computed(
   () => isFiltering.value && visibleGroups.value.length === 1 && !expandedKey.value,
 )
-const sections = computed(() =>
-  visibleGroups.value.map((group) => ({
-    ...group,
-    spans: cardSpansAround(
-      group.products.length,
-      group.products.findIndex((p) => p.key === expandedKey.value),
-      columns.value,
-    ),
-    rows: balancedRows(group.products.length, columns.value).length,
-  })),
+
+const virtualRows = computed(() =>
+  buildRhythmVirtualRows(visibleGroups.value, columns.value, expandedKey.value),
+)
+
+const fillCardRowHeight = computed(() => {
+  if (!fillsScreen.value) return CARD_ROW_ESTIMATE_PX
+  const cardRows = virtualRows.value.filter((r) => r.type === 'card-row').length || 1
+  return Math.max(
+    CARD_ROW_ESTIMATE_PX,
+    Math.floor((expandedHeight.value - GROUP_HEADER_ESTIMATE_PX) / cardRows),
+  )
+})
+
+const virtualizerOptions = computed(() => ({
+  count: virtualRows.value.length,
+  getScrollElement: () => scroller.value,
+  estimateSize: (index) => {
+    const row = virtualRows.value[index]
+    if (!row) return CARD_ROW_ESTIMATE_PX
+    if (row.type === 'card-row' && fillsScreen.value) return fillCardRowHeight.value
+    if (row.type === 'card-row' && row.hasExpanded) return expandedHeight.value
+    return estimateRhythmRowSize(row, expandedHeight.value)
+  },
+  overscan: 1,
+  scrollMargin: listOffsetRef.value,
+  getItemKey: (index) => virtualRows.value[index]?.key ?? index,
+}))
+
+const virtualizer = useVirtualizer(virtualizerOptions)
+const totalSize = computed(() => virtualizer.value.getTotalSize())
+
+const visibleVirtualRows = computed(() => {
+  const rows = virtualRows.value
+  const margin = virtualizer.value.options.scrollMargin ?? 0
+  return virtualizer.value
+    .getVirtualItems()
+    .map((item) => ({
+      key: item.key,
+      index: item.index,
+      offset: item.start - margin,
+      row: rows[item.index],
+    }))
+    .filter((item) => item.row)
+})
+
+let measuredIndexes = new WeakMap()
+const measureRow = (el) => {
+  if (!el) return
+  const index = Number(el.dataset.index)
+  if (measuredIndexes.get(el) === index) return
+  measuredIndexes.set(el, index)
+  virtualizer.value.measureElement(el)
+}
+
+watch(expandedKey, async (key) => {
+  if (!key) return
+  await nextTick()
+  updateListOffset()
+  const index = findCardRowIndex(virtualRows.value, key)
+  if (index >= 0) {
+    virtualizer.value.scrollToIndex(index, {
+      align: 'start',
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    })
+  }
+  await nextTick()
+  const card = cardComponents.get(key)?.$el
+  const container = scroller.value
+  if (!card || !container) return
+  const offset = card.getBoundingClientRect().top - container.getBoundingClientRect().top - toolbarHeight.value
+  if (Math.abs(offset) < 2) return
+  container.scrollTo({
+    top: container.scrollTop + offset,
+    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+  })
+})
+
+watch(
+  [virtualRows, totalSize, columns, fillsScreen],
+  async () => {
+    await nextTick()
+    updateListOffset()
+    measuredIndexes = new WeakMap()
+  },
+  { flush: 'post' },
 )
 
 const resultLabel = computed(() => {
@@ -149,8 +231,12 @@ onMounted(() => {
   colorScheme.addEventListener('change', refreshTheme)
   document.addEventListener('keydown', onEscapeCapture, true)
   measureViewport()
+  updateListOffset()
   if (typeof ResizeObserver !== 'undefined' && scroller.value) {
-    viewportObserver = new ResizeObserver(measureViewport)
+    viewportObserver = new ResizeObserver(() => {
+      measureViewport()
+      updateListOffset()
+    })
     viewportObserver.observe(scroller.value)
   }
 })
@@ -226,40 +312,69 @@ onBeforeUnmount(() => {
       <button type="button" class="link-btn" @click="clearSearch">Effacer la recherche</button>
     </div>
 
-    <div ref="groupsEl" class="groups" :class="{ 'groups-fill': fillsScreen }">
-      <section
-        v-for="section in sections"
-        :key="section.listId"
-        class="rhythm-group"
-        :class="{ 'rhythm-group-fill': fillsScreen }"
-        :style="fillsScreen ? { '--card-rows': section.rows } : undefined"
-        :aria-labelledby="`rhythm-group-${section.listId}`"
+    <div
+      v-else
+      ref="groupsEl"
+      class="groups groups-virtual"
+      :class="{ 'groups-fill': fillsScreen }"
+      :style="{ height: `${totalSize}px` }"
+    >
+      <div
+        v-for="item in visibleVirtualRows"
+        :key="item.key"
+        :ref="measureRow"
+        class="v-row"
+        :class="{ 'is-first-header': item.row.type === 'group-header' && item.row.isFirst }"
+        :data-index="item.index"
+        :data-row-type="item.row.type"
+        :style="{ transform: `translateY(${item.offset}px)` }"
       >
-        <header class="group-header">
-          <h3 :id="`rhythm-group-${section.listId}`" class="group-title">
-            {{ section.listName || 'Liste sans nom' }}
+        <header
+          v-if="item.row.type === 'group-header'"
+          class="group-header"
+          :aria-labelledby="`rhythm-group-${item.row.listId}`"
+        >
+          <h3 :id="`rhythm-group-${item.row.listId}`" class="group-title">
+            {{ item.row.listName || 'Liste sans nom' }}
           </h3>
           <span class="group-count">
-            {{ section.products.length }} {{ plural(section.products.length, 'produit', 'produits') }}
+            {{ item.row.productCount }} {{ plural(item.row.productCount, 'produit', 'produits') }}
           </span>
         </header>
-        <div class="cards">
+
+        <div
+          v-else-if="item.row.type === 'card-row'"
+          class="cards"
+          :class="{ 'cards-fill': fillsScreen }"
+          :style="
+            fillsScreen
+              ? { height: `${fillCardRowHeight}px` }
+              : item.row.hasExpanded
+                ? { height: `${expandedHeight}px` }
+                : undefined
+          "
+        >
           <ProductRhythmChart
-            v-for="(product, index) in section.products"
-            :key="product.key"
-            :ref="(component) => setCardRef(product.key, component)"
+            v-for="card in item.row.cards"
+            :key="card.product.key"
+            :ref="(component) => setCardRef(card.product.key, component)"
             :style="{
-              gridColumn: `span ${section.spans[index]}`,
-              height: product.key === expandedKey ? `${expandedHeight}px` : undefined,
+              gridColumn: `span ${card.span}`,
+              height:
+                card.product.key === expandedKey
+                  ? `${expandedHeight}px`
+                  : fillsScreen
+                    ? '100%'
+                    : undefined,
             }"
-            :product="product"
+            :product="card.product"
             :theme="theme"
-            :expanded="product.key === expandedKey"
+            :expanded="card.product.key === expandedKey"
             :advanced="advanced"
-            @toggle-expand="toggleExpanded(product.key)"
+            @toggle-expand="toggleExpanded(card.product.key)"
           />
         </div>
-      </section>
+      </div>
     </div>
   </section>
 </template>
@@ -484,37 +599,24 @@ onBeforeUnmount(() => {
   outline-offset: -2px;
 }
 
-.groups {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
+.groups-virtual {
+  position: relative;
+  width: 100%;
 }
 
-/* Une seule liste après filtre : le bloc grandit pour remplir l'écran, et dépasse si les cartes
-   ont besoin de plus que la hauteur visible (la page défile alors). */
 .groups-fill {
   flex: 1 0 auto;
 }
 
-.rhythm-group-fill {
-  flex: 1 0 auto;
-  display: flex;
-  flex-direction: column;
+.v-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
 }
 
-.rhythm-group-fill .cards {
-  flex: 1 0 auto;
-  grid-template-rows: repeat(var(--card-rows), minmax(17rem, 1fr));
-}
-
-.rhythm-group-fill :deep(.rhythm-card) {
-  height: 100%;
-}
-
-.rhythm-group-fill :deep(.chart-box) {
-  flex: 1 1 auto;
-  height: auto;
-  min-height: 180px;
+.v-row[data-row-type='group-header']:not(.is-first-header) {
+  padding-top: 1.5rem;
 }
 
 /* Chaque liste est ouverte par un bandeau coloré : les catégories se distinguent d'un coup d'œil. */
@@ -552,6 +654,17 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+
+.cards-fill :deep(.rhythm-card) {
+  height: 100%;
+}
+
+.cards-fill :deep(.chart-box) {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 180px;
 }
 
 .rhythm-empty {

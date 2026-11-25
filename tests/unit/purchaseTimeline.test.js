@@ -3,6 +3,7 @@ import {
   formatPurchaseQtyLabel,
   collectPurchaseEvents,
   buildTimelineSeries,
+  breakdownBucketForTooltipRows,
 } from '@/utils/stats/purchaseTimeline.js'
 
 describe('purchaseTimeline', () => {
@@ -96,7 +97,7 @@ describe('purchaseTimeline', () => {
       expect(result.counts.reduce((a, b) => a + b, 0)).toBe(3)
     })
 
-    it('aggregates tooltip rows by product, list and unit', () => {
+    it('keeps raw bucket events for on-demand tooltips', () => {
       const at = nowMs - 86_400_000
       const events = [
         { at, listName: 'Courses', text: 'Lait', quantity: 2, unit: 'L' },
@@ -104,14 +105,25 @@ describe('purchaseTimeline', () => {
       ]
 
       const result = buildTimelineSeries(events, nowMs, '7d')
-      const bucketWithItems = result.tooltipRowsPerBucket.find((b) => b.items.length > 0)
-      expect(bucketWithItems.items).toHaveLength(1)
-      expect(bucketWithItems.items[0]).toMatchObject({
+      expect(result.bucketEvents).toHaveLength(result.labels.length)
+      const bucketWithItems = result.bucketEvents.find((b) => b.length > 0)
+      expect(bucketWithItems).toHaveLength(2)
+
+      const detail = breakdownBucketForTooltipRows(bucketWithItems)
+      expect(detail.items).toHaveLength(1)
+      expect(detail.items[0]).toMatchObject({
         text: 'Lait',
         list: 'Courses',
         unit: 'L',
         quantitySum: 3,
       })
+    })
+  })
+
+  describe('breakdownBucketForTooltipRows', () => {
+    it('returns an empty detail for an empty bucket', () => {
+      expect(breakdownBucketForTooltipRows([])).toEqual({ items: [] })
+      expect(breakdownBucketForTooltipRows(null)).toEqual({ items: [] })
     })
   })
 })

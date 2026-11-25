@@ -9,6 +9,7 @@ import {
 } from 'vue'
 import { useWindowVirtualizer } from '@tanstack/vue-virtual'
 import TodoItem from './TodoItem.vue'
+import TodoInput from './TodoInput.vue'
 import QuickAddTodo from './QuickAddTodo.vue'
 import IconTrash from '@/components/ui/icons/IconTrash.vue'
 import { useTodoStorage } from '@/composables/useTodoStorage'
@@ -55,21 +56,22 @@ const newListInputRef = ref(null)
 const listParentRef = ref(null)
 const parentOffsetRef = ref(0)
 
-const virtualRows = computed(() =>
-  buildVirtualRows({
-    shoppingMode: shoppingMode.value,
-    shoppingTodos: shoppingTodos.value,
-    displayLists: displayLists.value,
-    manualSort: manualSort.value,
-  }),
-)
-
 const { selectedListId, selectList, ensureValidSelection } = useSelectedList()
 
 watch(
   lists,
   (value) => ensureValidSelection(value),
   { deep: true, immediate: true },
+)
+
+const virtualRows = computed(() =>
+  buildVirtualRows({
+    shoppingMode: shoppingMode.value,
+    shoppingTodos: shoppingTodos.value,
+    displayLists: displayLists.value,
+    manualSort: manualSort.value,
+    selectedListId: selectedListId.value,
+  }),
 )
 
 const updateParentOffset = () => {
@@ -365,8 +367,8 @@ const scrollToTodo = async (listId, todoId) => {
 
 watch(showNewList, async () => {
   await nextTick()
+  measuredIndexes = new WeakMap()
   virtualizer.value.measure()
-  invalidateLayout()
 })
 
 const draggedTodoListId = ref(null)
@@ -490,14 +492,23 @@ const onTodoDragEnd = () => {
   resetTodoDrag()
 }
 
+// Sur mobile, masquer/afficher la barre d'URL ne change que la hauteur du
+// viewport et déclenche `resize`. Remesurer alors remet toutes les lignes
+// aux estimations et crée des écarts entre éléments. On ne remesure que
+// quand la largeur change (orientation / reflow réel).
+let lastViewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0
+
 const onResize = () => {
   updateParentOffset()
-  // measure() repart des estimations : les lignes montées doivent être remesurées.
+  const width = window.innerWidth
+  if (width === lastViewportWidth) return
+  lastViewportWidth = width
   measuredIndexes = new WeakMap()
   virtualizer.value.measure()
 }
 
 onMounted(() => {
+  lastViewportWidth = window.innerWidth
   updateParentOffset()
   window.addEventListener('resize', onResize, { passive: true })
 })
@@ -700,6 +711,20 @@ onBeforeUnmount(() => {
           />
         </div>
 
+        <div
+          v-else-if="item.row.type === 'list-add'"
+          class="list-add-row"
+          :data-list-add="item.row.listId"
+        >
+          <TodoInput
+            placeholder="Ajouter une tâche…"
+            :suggestions="allTodoTexts"
+            @add="(text) => addTodo(item.row.listId, text)"
+            @navigate="scrollToTodo"
+            @toggle="(listId, todoId) => toggleTodo(listId, todoId)"
+          />
+        </div>
+
         <div v-else-if="item.row.type === 'add-list'" class="add-section">
           <div v-if="showNewList" class="new-form">
             <input
@@ -875,6 +900,16 @@ onBeforeUnmount(() => {
   margin: 0 -0.5rem;
   padding: 0 0.5rem;
   border-radius: 6px;
+}
+
+.list-add-row {
+  padding: 0 0.15rem;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+}
+
+.list-add-row:focus-within {
+  opacity: 1;
 }
 
 .add-section {

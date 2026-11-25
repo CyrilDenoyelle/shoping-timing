@@ -112,8 +112,8 @@ export const TIMELINE_PERIODS = [
  * @param {PurchaseEvent[]} bucketEvents
  * @returns {TooltipDetailBucket}
  */
-function breakdownBucketForTooltipRows(bucketEvents) {
-  if (!bucketEvents.length) return { items: [] }
+export function breakdownBucketForTooltipRows(bucketEvents) {
+  if (!bucketEvents?.length) return { items: [] }
   /** @type {Map<string, number>} */
   const m = new Map()
   for (const e of bucketEvents) {
@@ -154,7 +154,7 @@ export function buildTimelineSeries(events, nowMs, periodId) {
         counts: [],
         total: 0,
         bucketMode: 'day',
-        tooltipRowsPerBucket: [],
+        bucketEvents: [],
       }
     }
     fromMs = events[0].at
@@ -189,8 +189,8 @@ export function buildTimelineSeries(events, nowMs, periodId) {
 
   const labels = []
   const counts = []
-  /** @type {TooltipDetailBucket[]} */
-  const tooltipRowsPerBucket = []
+  /** @type {PurchaseEvent[][]} */
+  const bucketEvents = []
   const fmtDay = (ts) =>
     new Date(ts).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
   const fmtWeek = (ts) => {
@@ -205,9 +205,8 @@ export function buildTimelineSeries(events, nowMs, periodId) {
   for (const b of bucketStarts) {
     labels.push(bucketMode === 'week' ? fmtWeek(b) : fmtDay(b))
     counts.push(countMap.get(b) ?? 0)
-    const evts = eventsByBucket.get(b) ?? []
-    tooltipRowsPerBucket.push(breakdownBucketForTooltipRows(evts))
+    bucketEvents.push(eventsByBucket.get(b) ?? [])
   }
 
-  return { labels, counts, total, bucketMode, tooltipRowsPerBucket }
+  return { labels, counts, total, bucketMode, bucketEvents }
 }
